@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Data files
+*.tif
+*.tiff
+*.jpg
+*.jpeg
+*.png
+*.csv
+raw_crops/
+raw_crops_padded/
+padded_cells/
+cell_rois/
+original_image.tif
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
