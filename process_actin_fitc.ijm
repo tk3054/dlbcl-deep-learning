@@ -1,12 +1,15 @@
-// ImageJ Macro: Process Pre-Thresholded Actin-FITC for Cell Analysis
-// Automates workflow starting from manually thresholded image to labeled mask and measurements
+// ImageJ Macro: Process Actin-FITC for Cell Analysis
+// Automates complete workflow from raw image to binary mask
 //
 // PREREQUISITES:
-// 1. Open Actin-FITC.tif in ImageJ
-// 2. Create duplicate (Command+Shift+D) and name it 'duplicate-Actin-FITC-1.tif'
-// 3. Manually smooth the duplicate (Command+Shift+S)
-// 4. Manually threshold the duplicate (Command+Shift+T) - adjust as needed
-// 5. Then run this macro on the thresholded duplicate
+// 1. Actin-FITC.tif file must exist in the sample/image directory
+// 2. Configure sampleFolder and imageNumber variables below
+//
+// FUNCTIONALITY:
+// - Opens Actin-FITC.tif automatically
+// - Creates duplicate and applies smoothing
+// - Auto-thresholds using default method
+// - Saves raw image and binary mask
 //
 // Author: Automated from manual protocol
 
@@ -16,7 +19,7 @@
 
 // Change these values to process different samples
 sampleFolder = "sample1";  // Options: "sample1", "sample2", "sample3"
-imageNumber = "3";         // Options: "1", "2", "3", "4", etc.
+imageNumber = "4";         // Options: "1", "2", "3", "4", etc.
 
 // Auto-generated path
 basePath = "/Users/taeeonkong/Desktop/Project/Summer2025/20250729_CLLSaSa/1to10";
@@ -37,6 +40,34 @@ filePrefix = donorName + "_" + date + "_" + stiffness + "_" + spreadingTime + "_
 // ============================================================================
 // MAIN PROCESSING
 // ============================================================================
+
+// Open the Actin-FITC image if not already open
+actinPath = dir + "Actin-FITC.tif";
+if (!File.exists(actinPath)) {
+    print("ERROR: Actin-FITC.tif not found at: " + actinPath);
+    exit("Actin-FITC.tif file not found!");
+}
+
+// Check if image is already open, otherwise open it
+if (nImages == 0 || !isOpen("Actin-FITC.tif")) {
+    open(actinPath);
+    print("Opened: " + actinPath);
+}
+
+// Create the thresholded duplicate
+selectWindow("Actin-FITC.tif");
+run("Duplicate...", "title=duplicate-Actin-FITC-1.tif");
+print("Created duplicate: duplicate-Actin-FITC-1.tif");
+
+// Apply smoothing and thresholding to the duplicate
+selectWindow("duplicate-Actin-FITC-1.tif");
+run("Smooth");
+print("Applied smoothing");
+
+// Auto-threshold using default method
+setAutoThreshold("Default dark");
+run("Convert to Mask");
+print("Applied auto-threshold and converted to mask");
 
 // Get the current image title
 originalTitle = getTitle();

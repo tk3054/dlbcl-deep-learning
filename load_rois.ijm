@@ -4,7 +4,7 @@
 
 // Change these values to process different samples
 sampleFolder = "sample1";  // Options: "sample1", "sample2", "sample3"
-imageNumber = "3";         // Options: "1", "2", "3", "4", etc.
+imageNumber = "4";         // Options: "1", "2", "3", "4", etc.
 
 // Auto-generated paths
 basePath = "/Users/taeeonkong/Desktop/Project/Summer2025/20250729_CLLSaSa/1to10";

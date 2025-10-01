@@ -28,7 +28,7 @@ from scipy import ndimage as ndi
 
 # Change these values to process different samples
 SAMPLE_FOLDER = "sample1"  # Options: "sample1", "sample2", "sample3"
-IMAGE_NUMBER = "3"         # Options: "1", "2", "3", "4", etc.
+IMAGE_NUMBER = "4"         # Options: "1", "2", "3", "4", etc.
 
 # Segmentation parameters
 MIN_DISTANCE = 12
@@ -176,8 +176,116 @@ def export_raw_crops(image, bboxes, base_dir):
 
 
 # ============================================================================
-# MAIN PIPELINE
+# MAIN PIPELINE FUNCTIONS
 # ============================================================================
+
+def segment_cells(sample_folder, image_number, base_path,
+                  min_distance=12, min_size=500, max_size=9000, verbose=True):
+    """
+    Segment cells from masked images.
+
+    This is the main function to be called from notebooks or other scripts.
+
+    Args:
+        sample_folder: Sample folder name (e.g., "sample1", "sample2")
+        image_number: Image number within sample (e.g., "1", "2", "3")
+        base_path: Base directory path (e.g., "/path/to/data")
+        min_distance: Minimum distance between cell centers for watershed
+        min_size: Minimum cell area in pixels
+        max_size: Maximum cell area in pixels
+        verbose: Print progress messages
+
+    Returns:
+        dict with keys:
+            - 'num_cells': Number of cells segmented
+            - 'roi_dir': Path to ROI directory
+            - 'raw_crops_dir': Path to raw crops directory
+            - 'success': Boolean indicating success
+            - 'error': Error message if success is False
+    """
+    from pathlib import Path
+
+    # Build paths
+    base_dir = f"{base_path}/{sample_folder}/{image_number}"
+
+    # Find raw and mask files
+    base_path_obj = Path(base_dir)
+    raw_files = list(base_path_obj.glob("*_raw.jpg"))
+    mask_files = list(base_path_obj.glob("*_mask.jpg"))
+
+    if not raw_files:
+        return {
+            'success': False,
+            'error': f"Raw image not found in {base_dir}",
+            'num_cells': 0
+        }
+
+    if not mask_files:
+        return {
+            'success': False,
+            'error': f"Mask image not found in {base_dir}",
+            'num_cells': 0
+        }
+
+    raw_path = raw_files[0]
+    mask_path = mask_files[0]
+
+    if verbose:
+        print("="*60)
+        print("CELL SEGMENTATION PIPELINE")
+        print("="*60)
+        print(f"Sample: {sample_folder}/{image_number}")
+        print(f"Base directory: {base_dir}\n")
+        print("Loading images...")
+        print(f"  Raw: {raw_path.name}")
+        print(f"  Mask: {mask_path.name}")
+
+    # Load images
+    image = load_image(str(raw_path))
+    mask = load_image(str(mask_path))
+
+    if verbose:
+        print(f"  Loaded image: {image.shape}")
+        print(f"  Loaded mask: {mask.shape}\n")
+        print("Performing watershed segmentation...")
+        print(f"  Parameters: min_distance={min_distance}, min_size={min_size}, max_size={max_size}")
+
+    # Perform segmentation
+    regions, bboxes, labeled_mask = segment_cells_from_mask(
+        image, mask,
+        min_distance=min_distance,
+        min_size=min_size,
+        max_size=max_size
+    )
+
+    if verbose:
+        print(f"  Found {len(regions)} valid cells\n")
+        print("Exporting cell ROIs...")
+
+    # Export ROIs
+    roi_dir = export_cell_rois(image, labeled_mask, regions, base_dir)
+
+    if verbose:
+        print(f"  Exported {len(regions)} cell ROIs to: {roi_dir}\n")
+        print("Exporting raw crops...")
+
+    # Export raw crops
+    raw_crops_dir = export_raw_crops(image, bboxes, base_dir)
+
+    if verbose:
+        print(f"  Exported {len(bboxes)} raw crops to: {raw_crops_dir}\n")
+        print("="*60)
+        print("SEGMENTATION COMPLETE")
+        print("="*60)
+
+    return {
+        'success': True,
+        'num_cells': len(regions),
+        'roi_dir': roi_dir,
+        'raw_crops_dir': raw_crops_dir,
+        'base_dir': base_dir
+    }
+
 
 def run_segmentation(config):
     """Execute the complete segmentation pipeline"""

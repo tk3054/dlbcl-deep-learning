@@ -19,7 +19,7 @@ import sys
 
 # Change these values to review different samples (must match previous scripts)
 SAMPLE_FOLDER = "sample1"  # Options: "sample1", "sample2", "sample3"
-IMAGE_NUMBER = "3"         # Options: "1", "2", "3", "4", etc.
+IMAGE_NUMBER = "4"         # Options: "1", "2", "3", "4", etc.
 
 # Auto-generated paths
 BASE_PATH = "/Users/taeeonkong/Desktop/Project/Summer2025/20250729_CLLSaSa/1to10"
@@ -183,9 +183,7 @@ def load_results_from_csv(base_dir):
     """Load analysis results from CSV file"""
     csv_path = Path(base_dir) / "raw_crops_quality_analysis.csv"
     if not csv_path.exists():
-        print(f"❌ Error: Could not find {csv_path}")
-        print("Please run the analysis cells in the notebook first!")
-        sys.exit(1)
+        return None
 
     df = pd.read_csv(csv_path)
 
@@ -204,9 +202,95 @@ def load_results_from_csv(base_dir):
     return results
 
 
+# ============================================================================
+# MAIN PIPELINE FUNCTION
+# ============================================================================
+
+def review_cells(sample_folder, image_number, base_path, verbose=True):
+    """
+    Launch GUI for manual cell classification.
+
+    This is the main function to be called from notebooks or other scripts.
+
+    Args:
+        sample_folder: Sample folder name (e.g., "sample1", "sample2")
+        image_number: Image number within sample (e.g., "1", "2", "3")
+        base_path: Base directory path (e.g., "/path/to/data")
+        verbose: Print progress messages
+
+    Returns:
+        dict with keys:
+            - 'classifications': List of manual classifications
+            - 'good_count': Number of cells marked as GOOD
+            - 'bad_count': Number of cells marked as BAD
+            - 'output_csv': Path to output CSV file
+            - 'success': Boolean indicating success
+            - 'error': Error message if success is False
+    """
+    # Build paths
+    base_dir = f"{base_path}/{sample_folder}/{image_number}"
+    raw_crops_dir = f"{base_dir}/raw_crops"
+
+    if verbose:
+        print("\n" + "="*60)
+        print("MANUAL CELL REVIEW")
+        print("="*60)
+        print(f"Sample: {sample_folder}/{image_number}")
+        print(f"Directory: {base_dir}")
+        print("="*60)
+
+    # Load results
+    if verbose:
+        print("\nLoading analysis results...")
+
+    results = load_results_from_csv(base_dir)
+    if results is None:
+        return {
+            'success': False,
+            'error': f"Could not find raw_crops_quality_analysis.csv in {base_dir}",
+            'classifications': [],
+            'good_count': 0,
+            'bad_count': 0
+        }
+
+    if verbose:
+        print(f"  Loaded {len(results)} cells\n")
+        print("A window will pop up. Use arrow keys to classify:")
+        print("  <- Left Arrow  = Mark as BAD")
+        print("  -> Right Arrow = Mark as GOOD")
+        print("  B             = Undo last classification")
+        print("  Q or Escape   = Quit and save")
+        print("="*60 + "\n")
+
+    # Launch reviewer
+    reviewer = CellReviewer(results, raw_crops_dir, base_dir)
+    reviewer.run()
+
+    # Get results
+    classifications = reviewer.classifications
+    good_count = sum(1 for c in classifications if c['classification'] == 'GOOD')
+    bad_count = len(classifications) - good_count
+    output_csv = f"{base_dir}/manual_classifications.csv"
+
+    if verbose:
+        print(f"\nManual review complete:")
+        print(f"  GOOD cells: {good_count}")
+        print(f"  BAD cells: {bad_count}")
+        print(f"  CSV saved: {output_csv}")
+
+    return {
+        'success': True,
+        'classifications': classifications,
+        'good_count': good_count,
+        'bad_count': bad_count,
+        'output_csv': output_csv,
+        'base_dir': base_dir
+    }
+
+
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("🔍 MANUAL CELL REVIEW")
+    print("MANUAL CELL REVIEW")
     print("="*60)
     print(f"Sample: {SAMPLE_FOLDER}/{IMAGE_NUMBER}")
     print(f"Directory: {BASE_DIR}")
@@ -215,11 +299,17 @@ if __name__ == "__main__":
     # Load results
     print("\nLoading analysis results...")
     results = load_results_from_csv(BASE_DIR)
-    print(f"✓ Loaded {len(results)} cells\n")
+
+    if results is None:
+        print(f"ERROR: Could not find raw_crops_quality_analysis.csv in {BASE_DIR}")
+        print("Please run filter_bad_cells.py first!")
+        sys.exit(1)
+
+    print(f"  Loaded {len(results)} cells\n")
 
     print("A window will pop up. Use arrow keys to classify:")
-    print("  ← Left Arrow  = Mark as BAD")
-    print("  → Right Arrow = Mark as GOOD")
+    print("  <- Left Arrow  = Mark as BAD")
+    print("  -> Right Arrow = Mark as GOOD")
     print("  B             = Undo last classification")
     print("  Q or Escape   = Quit and save")
     print("="*60 + "\n")

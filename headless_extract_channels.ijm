@@ -1,3 +1,6 @@
+// ImageJ Macro: Extract Channel Measurements (HEADLESS VERSION)
+// Measures fluorescence intensity in all channels in batch mode
+
 // ============================================================================
 // CONFIGURATION - EDIT THESE
 // ============================================================================
@@ -12,19 +15,64 @@ dir = basePath + "/" + sampleFolder + "/" + imageNumber + "/";
 
 
 // ============================================================================
-// SETUP - Scale and ROI Manager
+// SETUP - Scale and Load ROIs
 // ============================================================================
+
+// Enable batch mode for headless operation
+setBatchMode(true);
+
 print("Setting scale (40x objective, 5 pixels per micron)...");
 run("Set Scale...", "distance=5 known=1 unit=um global");
 
-print("Opening ROI Manager...");
-run("ROI Manager...");
+// Load ROIs from cell_rois directory
+roi_folder = dir + "cell_rois/";
+original_image = dir + "original_image.tif";
+
+print("Loading ROIs...");
+if (File.exists(original_image)) {
+    open(original_image);
+    original_id = getImageID();
+
+    // Get list of ROI files
+    list = getFileList(roi_folder);
+
+    // Load each ROI into ROI Manager
+    for (i = 0; i < list.length; i++) {
+        if (endsWith(list[i], ".tif")) {
+            // Open ROI mask
+            open(roi_folder + list[i]);
+
+            // Convert to selection and add to ROI Manager
+            run("Create Selection");
+            roiManager("Add");
+            roiManager("Select", roiManager("count")-1);
+            roiManager("Rename", "Cell_" + (i+1));
+
+            // Close ROI mask
+            close();
+
+            // Make sure original image is still active
+            selectImage(original_id);
+        }
+    }
+
+    print("Loaded " + roiManager("count") + " ROIs");
+
+    // Close original image (we'll open channel images next)
+    close();
+} else {
+    print("ERROR: original_image.tif not found at: " + original_image);
+    exit("Cannot proceed without original image");
+}
 
 
 // ============================================================================
 // ACTIN-FITC CHANNEL
 // ============================================================================
 print("\n--- Processing Actin-FITC ---");
+
+// Open Actin-FITC image
+open(dir + "Actin-FITC.tif");
 
 // Configure measurements for Actin-FITC
 run("Set Measurements...", "area mean standard min centroid shape integrated display redirect=Actin-FITC.tif decimal=3");
@@ -37,6 +85,9 @@ roiManager("Measure");
 print("Saving Actin-FITC measurements...");
 saveAs("Results", dir + "actin-fitc-measurements.csv");
 run("Clear Results");
+
+// Close image
+close();
 
 
 // ============================================================================
@@ -115,3 +166,6 @@ saveAs("Results", dir + "ccr7-pe-measurements.csv");
 // COMPLETE
 // ============================================================================
 print("\n✅ All measurements completed and saved!");
+
+// Disable batch mode
+setBatchMode(false);
