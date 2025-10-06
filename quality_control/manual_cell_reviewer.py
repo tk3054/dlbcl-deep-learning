@@ -11,6 +11,7 @@ import pandas as pd
 from pathlib import Path
 import json
 import sys
+import re
 
 
 # ============================================================================
@@ -28,7 +29,8 @@ RAW_CROPS_DIR = f"{BASE_DIR}/raw_crops"
 
 class CellReviewer:
     def __init__(self, results, raw_crops_dir, base_dir):
-        self.results = sorted(results, key=lambda r: int(r['filename'].replace('cell_', '').replace('.tif', '')))
+        # Extract cell number from filename (handles: cell_01.tif, cell_01_crop.png, etc.)
+        self.results = sorted(results, key=lambda r: int(re.search(r'cell_(\d+)', r['filename']).group(1)))
         self.raw_crops_dir = Path(raw_crops_dir)
         self.base_dir = base_dir
         self.current_idx = 0
@@ -55,7 +57,7 @@ class CellReviewer:
         # Instructions
         instructions = tk.Label(
             self.root,
-            text="← Left Arrow: BAD    → Right Arrow: GOOD    B: Undo    Q/Escape: Quit & Save",
+            text="← Left: BAD    → Right: GOOD    B: Undo    S: Save    Q/Esc: Quit & Save",
             font=("Arial", 11, "bold"),
             fg="blue"
         )
@@ -66,6 +68,8 @@ class CellReviewer:
         self.root.bind('<Right>', lambda e: self.classify('GOOD'))
         self.root.bind('b', lambda e: self.undo())
         self.root.bind('B', lambda e: self.undo())
+        self.root.bind('s', lambda e: self.save())
+        self.root.bind('S', lambda e: self.save())
         self.root.bind('q', lambda e: self.quit())
         self.root.bind('Q', lambda e: self.quit())
         self.root.bind('<Escape>', lambda e: self.quit())
@@ -132,6 +136,25 @@ class CellReviewer:
             self.current_idx = max(0, self.current_idx - 1)
             self.show_current()
 
+    def save(self):
+        """Save classifications without quitting"""
+        if not self.classifications:
+            print("\n⚠️  No classifications to save yet")
+            return
+
+        df_manual = pd.DataFrame(self.classifications)
+        output_path = f"{self.base_dir}/manual_classifications.csv"
+        df_manual.to_csv(output_path, index=False)
+
+        good_count = sum(1 for c in self.classifications if c['classification'] == 'GOOD')
+        bad_count = len(self.classifications) - good_count
+        print(f"\n💾 Saved {len(self.classifications)} classifications ({good_count} GOOD, {bad_count} BAD) to: {output_path}")
+
+        # Show brief save confirmation in UI
+        current_text = self.info_label.cget("text")
+        self.info_label.config(text=f"💾 SAVED!\n\n{current_text}")
+        self.root.after(1000, lambda: self.info_label.config(text=current_text))
+
     def finish(self):
         if self.finished:
             return
@@ -142,17 +165,15 @@ class CellReviewer:
         self.root.unbind('<Right>')
         self.root.unbind('b')
         self.root.unbind('B')
+        self.root.unbind('s')
+        self.root.unbind('S')
         self.root.unbind('q')
         self.root.unbind('Q')
         self.root.unbind('<Escape>')
 
-        # Save results
+        # Save results one final time
         if self.classifications:
-            df_manual = pd.DataFrame(self.classifications)
-            output_path = f"{self.base_dir}/manual_classifications.csv"
-            df_manual.to_csv(output_path, index=False)
-            print(f"\n✅ Manual classifications saved to: {output_path}")
-
+            self.save()
             good_count = sum(1 for c in self.classifications if c['classification'] == 'GOOD')
             bad_count = len(self.classifications) - good_count
             print(f"📊 Summary: {good_count} GOOD, {bad_count} BAD (out of {len(self.classifications)} reviewed)")
@@ -259,6 +280,7 @@ def review_cells(sample_folder, image_number, base_path, verbose=True):
         print("  <- Left Arrow  = Mark as BAD")
         print("  -> Right Arrow = Mark as GOOD")
         print("  B             = Undo last classification")
+        print("  S             = Save progress (without quitting)")
         print("  Q or Escape   = Quit and save")
         print("="*60 + "\n")
 
@@ -311,6 +333,7 @@ if __name__ == "__main__":
     print("  <- Left Arrow  = Mark as BAD")
     print("  -> Right Arrow = Mark as GOOD")
     print("  B             = Undo last classification")
+    print("  S             = Save progress (without quitting)")
     print("  Q or Escape   = Quit and save")
     print("="*60 + "\n")
 

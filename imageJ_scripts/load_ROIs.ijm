@@ -2,17 +2,17 @@
 // Loads cell ROIs onto original image in batch mode
 
 // ============================================================================
-// CONFIGURATION - EDIT THESE
+// CONFIGURATION - Set by Python (do not edit manually)
 // ============================================================================
 
-// Change these values to process different samples
-sampleFolder = "sample1";  // Options: "sample1", "sample2", "sample3"
-imageNumber = "4";         // Options: "1", "2", "3", "4", etc.
+// These values are replaced by Python when running the pipeline
+sampleFolder = "SAMPLE_PLACEHOLDER";
+imageNumber = "IMAGE_PLACEHOLDER";
+basePath = "BASE_PATH_PLACEHOLDER";
 
 // Auto-generated paths
-basePath = "/Users/taeeonkong/Desktop/Project/Summer2025/20250729_CLLSaSa/1to10";
 baseDir = basePath + "/" + sampleFolder + "/" + imageNumber + "/";
-roi_folder = baseDir + "cell_rois/";
+roi_folder = baseDir + "cell_rois_shrunk/";  // Use shrunk ROIs for measurements
 original_image = baseDir + "original_image.tif";
 
 
@@ -25,16 +25,15 @@ setBatchMode(true);
 
 // Load All Cell ROIs onto Original Image
 
-// Check if original_image exists, if not create it from Actin-FITC
+// Check if original_image exists (Cellpose should have created it)
+// Only create if missing
 if (!File.exists(original_image)) {
-    print("original_image not found, creating from Actin-FITC.tif");
     actin_fitc = baseDir + "Actin-FITC.tif";
     if (File.exists(actin_fitc)) {
         open(actin_fitc);
         run("Duplicate...", "title=original_image.tif");
         saveAs("Tiff", original_image);
         close();
-        print("Created " + original_image);
     } else {
         print("Error: Neither original_image.tif nor Actin-FITC.tif found!");
     }
@@ -54,8 +53,6 @@ for (i = 0; i < list.length; i++) {
         roi_count++;
     }
 }
-
-print("Loaded " + roi_count + " ROIs");
 
 // Close original image
 selectImage(original_id);

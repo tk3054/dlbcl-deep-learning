@@ -33,26 +33,26 @@ except ImportError:
 # ============================================================================
 
 # Change these values to process different samples
-SAMPLE_FOLDER = "sample1"  # Options: "sample1", "sample2", "sample3"
-IMAGE_NUMBER = "5"         # Options: "1", "2", "3", "4", etc.
+SAMPLE_FOLDER = "sample4"  # Options: "sample1", "sample2", "sample3"
+IMAGE_NUMBER = "1[overlap]"         # Options: "1", "2", "3", "4", etc.
 
 # Cellpose parameters
 MODEL_TYPE = "cyto2"       # Options: "cyto2" (cells), "nuclei", "cpsam" (latest)
-DIAMETER = None            # Auto-detect if None, or specify in pixels
+DIAMETER = 50              # Auto-detect if None, or specify in pixels
 FLOW_THRESHOLD = 0.4       # Higher = stricter (fewer masks)
-CELLPROB_THRESHOLD = 0.0   # Higher = stricter (fewer masks)
+CELLPROB_THRESHOLD = -2.0  # Higher = stricter (fewer masks), lower = more permissive
 USE_GPU = True             # Set to True if you have GPU (Mac MPS)
 
 # Size filtering
 MIN_SIZE = 500
-MAX_SIZE = 9000
+MAX_SIZE = 20000           # Increased for larger cells
 
 
 # ============================================================================
 # AUTO-GENERATED PATHS (do not edit)
 # ============================================================================
 
-BASE_PATH = "/Users/taeeonkong/Desktop/Project/Summer2025/20250729_CLLSaSa/1to10"
+BASE_PATH = "/Users/taeeonkong/Desktop/2025 Fall Images/09-26-2025 DLBCL"
 BASE_DIR = f"{BASE_PATH}/{SAMPLE_FOLDER}/{IMAGE_NUMBER}"
 
 
@@ -61,36 +61,27 @@ BASE_DIR = f"{BASE_PATH}/{SAMPLE_FOLDER}/{IMAGE_NUMBER}"
 # ============================================================================
 
 def load_image(image_path):
-    """Load an image as numpy array"""
-    img = Image.open(image_path)
-    if img.mode == 'RGB':
-        # Convert RGB to grayscale
-        return np.array(img.convert('L'))
-    return np.array(img)
-
-
-def preprocess_for_cellpose(image):
-    """Enhance dim cells before Cellpose segmentation using CLAHE"""
+    """Load an image as numpy array, preserving bit depth"""
     import cv2
-
-    # Normalize to 0-1 range
-    img_norm = (image - image.min()) / (image.max() - image.min())
-
-    # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
-    img_8bit = (img_norm * 255).astype(np.uint8)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    img_enhanced = clahe.apply(img_8bit)
-
-    # Optional: Gaussian blur to reduce noise
-    img_enhanced = cv2.GaussianBlur(img_enhanced, (3,3), 0)
-
-    return img_enhanced
+    # Try to load with full bit depth first (for TIF files)
+    img = cv2.imread(str(image_path), cv2.IMREAD_ANYDEPTH | cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        # Fall back to normal imread for JPEG/PNG
+        img = cv2.imread(str(image_path), cv2.IMREAD_UNCHANGED)
+    if img is None:
+        # Final fallback to PIL
+        from PIL import Image
+        pil_img = Image.open(image_path)
+        if pil_img.mode == 'RGB':
+            return np.array(pil_img.convert('L'))
+        return np.array(pil_img)
+    return img
 
 
 def segment_cells_with_cellpose(image, mask=None, model_type='cyto2', diameter=None,
                                 flow_threshold=0.4, cellprob_threshold=0.0,
                                 min_size=500, max_size=9000, use_gpu=False,
-                                enhance_contrast=True, verbose=True):
+                                verbose=True):
     """
     Segment cells using Cellpose deep learning model
 
@@ -104,7 +95,6 @@ def segment_cells_with_cellpose(image, mask=None, model_type='cyto2', diameter=N
         min_size: Minimum cell area in pixels
         max_size: Maximum cell area in pixels
         use_gpu: Use GPU acceleration
-        enhance_contrast: Apply CLAHE preprocessing to enhance dim cells
         verbose: Print progress
 
     Returns:
@@ -121,11 +111,20 @@ def segment_cells_with_cellpose(image, mask=None, model_type='cyto2', diameter=N
         print(f"Initializing Cellpose model: {model_type}")
         print(f"  GPU enabled: {use_gpu}")
 
-    # Preprocess image if requested
-    if enhance_contrast:
-        if verbose:
-            print("Applying CLAHE contrast enhancement...")
-        image = preprocess_for_cellpose(image)
+    # Apply Cellpose's native normalization (like GUI does)
+    from cellpose import transforms
+
+    # Ensure image has correct shape for normalization
+    if len(image.shape) == 2:
+        # Add channel dimension for grayscale images
+        img_norm = transforms.normalize_img(image[..., np.newaxis], axis=-1)
+        # Remove channel dimension after normalization
+        img_norm = img_norm.squeeze()
+    else:
+        img_norm = transforms.normalize_img(image, axis=-1)
+
+    if verbose:
+        print("Applied Cellpose normalization")
 
     # Initialize Cellpose model
     model = models.CellposeModel(gpu=use_gpu, model_type=model_type)
@@ -136,22 +135,28 @@ def segment_cells_with_cellpose(image, mask=None, model_type='cyto2', diameter=N
         print(f"  Flow threshold: {flow_threshold}")
         print(f"  Cell probability threshold: {cellprob_threshold}")
 
-    # Run Cellpose segmentation
-    # channels=[0,0] means grayscale (first channel is the channel to segment, second is optional nuclear channel)
+    # Run Cellpose segmentation with GUI defaults
     result = model.eval(
-        x=image,
+        x=img_norm,
         diameter=diameter,
         flow_threshold=flow_threshold,
         cellprob_threshold=cellprob_threshold,
-        channels=[0, 0]  # Grayscale
+        channels=None,    # Auto-detect (like GUI)
+        rescale=None,     # Let Cellpose decide (like GUI)
+        resample=True     # GUI default
     )
 
     # Handle different return formats (v4.0+ returns 3 values, older versions return 4)
-    if len(result) == 4:
+    try:
         masks, flows, styles, diams = result
-    else:
+    except ValueError:
+        # v4.0+ returns only 3 values (masks, flows, styles)
         masks, flows, styles = result
-        diams = diameter if diameter is not None else 30  # Default
+        # In v4.0+, diameter is in flows[3] if it was auto-detected
+        if isinstance(flows, list) and len(flows) > 3:
+            diams = flows[3]
+        else:
+            diams = diameter if diameter is not None else 30  # Default
 
     if verbose:
         detected_diameter = diams if diameter is None else diameter
@@ -219,11 +224,16 @@ def export_cell_rois(image, labeled_mask, regions, base_dir):
             warnings.simplefilter("ignore")
             io.imsave(roi_path, single_cell_mask)
 
-    # Also save original for reference
+    # Also save original for reference (preserve original bit depth)
     original_path = os.path.join(base_dir, 'original_image.tif')
+
+    # Debug: print image info to verify correct image is being saved
+    print(f"  Saving original image: {image.shape}, dtype: {image.dtype}, unique_values: {len(np.unique(image))}")
+
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        io.imsave(original_path, image.astype(np.uint8))
+        # Save with original dtype (uint8, uint16, etc.)
+        io.imsave(original_path, image, check_contrast=False)
 
     return roi_dir
 
@@ -256,7 +266,7 @@ def segment_cells_cellpose(sample_folder, image_number, base_path,
                            model_type='cyto2', diameter=None,
                            flow_threshold=0.4, cellprob_threshold=0.0,
                            min_size=500, max_size=9000, use_gpu=False,
-                           enhance_contrast=True, verbose=True):
+                           verbose=True):
     """
     Segment cells using Cellpose.
 
@@ -273,7 +283,6 @@ def segment_cells_cellpose(sample_folder, image_number, base_path,
         min_size: Minimum cell area in pixels
         max_size: Maximum cell area in pixels
         use_gpu: Use GPU acceleration
-        enhance_contrast: Apply CLAHE preprocessing to enhance dim cells
         verbose: Print progress messages
 
     Returns:
@@ -290,27 +299,29 @@ def segment_cells_cellpose(sample_folder, image_number, base_path,
     # Build paths
     base_dir = f"{base_path}/{sample_folder}/{image_number}"
 
-    # Find raw and mask files
+    # Find image files (prefer original TIF over preprocessed JPEG)
     base_path_obj = Path(base_dir)
+
+    # Look for original Actin-FITC.tif first (better quality)
+    actin_tif = base_path_obj / "Actin-FITC.tif"
     raw_files = list(base_path_obj.glob("*_raw.jpg"))
+
+    if actin_tif.exists():
+        image_path = actin_tif
+        image_source = "original TIF"
+    elif raw_files:
+        image_path = raw_files[0]
+        image_source = "preprocessed JPEG"
+    else:
+        return {
+            'success': False,
+            'error': f"No image found in {base_dir} (looked for Actin-FITC.tif or *_raw.jpg)",
+            'num_cells': 0
+        }
+
+    # Mask is optional for Cellpose
     mask_files = list(base_path_obj.glob("*_mask.jpg"))
-
-    if not raw_files:
-        return {
-            'success': False,
-            'error': f"Raw image not found in {base_dir}",
-            'num_cells': 0
-        }
-
-    if not mask_files:
-        return {
-            'success': False,
-            'error': f"Mask image not found in {base_dir}",
-            'num_cells': 0
-        }
-
-    raw_path = raw_files[0]
-    mask_path = mask_files[0]
+    mask_path = mask_files[0] if mask_files else None
 
     if verbose:
         print("="*60)
@@ -319,16 +330,22 @@ def segment_cells_cellpose(sample_folder, image_number, base_path,
         print(f"Sample: {sample_folder}/{image_number}")
         print(f"Base directory: {base_dir}\n")
         print("Loading images...")
-        print(f"  Raw: {raw_path.name}")
-        print(f"  Mask: {mask_path.name}")
+        print(f"  Image: {image_path.name} ({image_source})")
+        if mask_path:
+            print(f"  Mask: {mask_path.name}")
+        else:
+            print(f"  Mask: None (will segment entire image)")
 
     # Load images
-    image = load_image(str(raw_path))
-    mask = load_image(str(mask_path))
+    image = load_image(str(image_path))
+    mask = load_image(str(mask_path)) if mask_path else None
 
     if verbose:
-        print(f"  Loaded image: {image.shape}")
-        print(f"  Loaded mask: {mask.shape}\n")
+        print(f"  Loaded image: {image.shape}, dtype: {image.dtype}")
+        if mask is not None:
+            print(f"  Loaded mask: {mask.shape}\n")
+        else:
+            print(f"  No mask loaded\n")
 
     # Perform Cellpose segmentation
     try:
@@ -341,7 +358,6 @@ def segment_cells_cellpose(sample_folder, image_number, base_path,
             min_size=min_size,
             max_size=max_size,
             use_gpu=use_gpu,
-            enhance_contrast=enhance_contrast,
             verbose=verbose
         )
     except Exception as e:
@@ -366,6 +382,11 @@ def segment_cells_cellpose(sample_folder, image_number, base_path,
 
     if verbose:
         print(f"  Exported {len(bboxes)} raw crops to: {raw_crops_dir}\n")
+
+    # Create visualization
+    visualize_segmentation(base_dir, len(regions))
+
+    if verbose:
         print("="*60)
         print("CELLPOSE SEGMENTATION COMPLETE")
         print("="*60)
@@ -386,19 +407,31 @@ def visualize_segmentation(base_dir, num_cells):
     matplotlib.use('Agg')  # Non-interactive backend
     import matplotlib.pyplot as plt
     from skimage.segmentation import find_boundaries
+    import cv2
 
     print("\nCreating visualization...")
 
     base_path = Path(base_dir)
-    cellpose_roi_dir = base_path / "cell_rois_cellpose"
+    cellpose_roi_dir = base_path / "cell_rois"
 
-    # Load original image
+    # Load original image (prefer TIF over JPEG for better quality)
+    actin_tif = base_path / "Actin-FITC.tif"
     raw_files = list(base_path.glob("*_raw.jpg"))
-    if not raw_files:
-        print("⚠️  Could not find raw image for visualization")
-        return
 
-    raw_img = np.array(Image.open(raw_files[0]).convert('L'))
+    if actin_tif.exists():
+        # Load TIF with full bit depth
+        raw_img = cv2.imread(str(actin_tif), cv2.IMREAD_ANYDEPTH | cv2.IMREAD_GRAYSCALE)
+        # Normalize to 8-bit for display
+        raw_img = raw_img.astype(float)
+        img_min, img_max = raw_img.min(), raw_img.max()
+        if img_max > img_min:
+            raw_img = (raw_img - img_min) / (img_max - img_min) * 255
+        raw_img = raw_img.astype(np.uint8)
+    elif raw_files:
+        raw_img = np.array(Image.open(raw_files[0]).convert('L'))
+    else:
+        print("⚠️  Could not find image for visualization")
+        return
 
     # Load all ROI masks and combine
     roi_files = sorted(cellpose_roi_dir.glob("*.tif"))
@@ -433,7 +466,7 @@ def visualize_segmentation(base_dir, num_cells):
     plt.tight_layout()
 
     # Save figure
-    output_path = base_path / "cellpose_segmentation_visualization.png"
+    output_path = base_path / "big_cell_adjusted.png"
     plt.savefig(output_path, dpi=150, bbox_inches='tight')
     plt.close()
 
@@ -471,7 +504,7 @@ def main():
     print(f"\nOutputs:")
     print(f"  • ROI masks: {result['roi_dir']}")
     print(f"  • Raw crops: {result['raw_crops_dir']}")
-    print(f"  • Visualization: {result['base_dir']}/cellpose_segmentation_visualization.png")
+    print(f"  • Visualization: {result['base_dir']}/big_cell_adjusted.png")
 
 
 if __name__ == "__main__":

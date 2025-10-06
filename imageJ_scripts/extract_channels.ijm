@@ -2,16 +2,22 @@
 // Measures fluorescence intensity in all channels and returns structured data
 
 // ============================================================================
-// CONFIGURATION - EDIT THESE
+// CONFIGURATION - Set by Python (do not edit manually)
 // ============================================================================
 
-// Change these values to process different samples
-sampleFolder = "sample1";  // Options: "sample1", "sample2", "sample3"
-imageNumber = "4";         // Options: "1", "2", "3", "4", etc.
-
-// Auto-generated path
-basePath = "/Users/taeeonkong/Desktop/Project/Summer2025/20250729_CLLSaSa/1to10";
+// These values are replaced by Python when running the pipeline
+sampleFolder = "SAMPLE_PLACEHOLDER";
+imageNumber = "IMAGE_PLACEHOLDER";
+basePath = "BASE_PATH_PLACEHOLDER";
 dir = basePath + "/" + sampleFolder + "/" + imageNumber + "/";
+
+// Channel filenames - replaced by Python from CHANNEL_CONFIG
+actinFile = "ACTIN_FILE_PLACEHOLDER";
+cd4File = "CD4_FILE_PLACEHOLDER";
+cd45raAF647File = "CD45RA_AF647_FILE_PLACEHOLDER";
+cd45raSparkVioletFile = "CD45RA_SPARKVIOLET_FILE_PLACEHOLDER";
+cd19carFile = "CD19CAR_FILE_PLACEHOLDER";
+ccr7File = "CCR7_FILE_PLACEHOLDER";
 
 
 // ============================================================================
@@ -21,8 +27,11 @@ dir = basePath + "/" + sampleFolder + "/" + imageNumber + "/";
 // Enable batch mode for headless operation
 setBatchMode(true);
 
-// Get list of ROI files
-roi_folder = dir + "cell_rois/";
+// Suppress Results display
+setBatchMode("hide");
+
+// Get list of ROI files (using shrunk ROIs for cleaner measurements)
+roi_folder = dir + "cell_rois_shrunk/";
 roi_list = getFileList(roi_folder);
 
 // Filter to only .tif files and sort
@@ -35,7 +44,6 @@ for (i = 0; i < roi_list.length; i++) {
 Array.sort(roi_files);
 
 numCells = roi_files.length;
-print("Found " + numCells + " ROI masks");
 
 
 // ============================================================================
@@ -43,64 +51,62 @@ print("Found " + numCells + " ROI masks");
 // ============================================================================
 
 function measureChannel(channel_name, channel_file, roi_files, roi_folder, preprocess) {
-    print("\n--- Processing " + channel_name + " ---");
+    // Try to find processed file first, fall back to original
+    processed_file = "processed_" + channel_file;
+    file_to_use = "";
 
-    // Open channel image
-    if (!File.exists(dir + channel_file)) {
-        print("WARNING: " + channel_file + " not found, skipping");
+    if (File.exists(dir + processed_file)) {
+        file_to_use = processed_file;
+        print("  Using preprocessed file: " + processed_file);
+    } else if (File.exists(dir + channel_file)) {
+        file_to_use = channel_file;
+        print("  Using original file: " + channel_file);
+    } else {
+        print("WARNING: Neither " + processed_file + " nor " + channel_file + " found, skipping");
         return "SKIP";
     }
 
-    open(dir + channel_file);
+    open(dir + file_to_use);
     channel_id = getImageID();
 
     // Set scale (40x objective, 5 pixels per micron)
     run("Set Scale...", "distance=5 known=1 unit=um");
 
-    // Preprocess if needed
-    if (preprocess == "cd4") {
-        run("Subtract Background...", "rolling=100 sliding");
-    } else if (preprocess == "cd45ra" || preprocess == "ccr7") {
-        run("Subtract Background...", "rolling=50");
-    }
+    // Preprocessing is now done in separate step, so skip here
+    // (kept for backward compatibility if processed files don't exist)
 
     // Prepare output string with header
-    output = "cell_id,area,mean,std,min,max,x,y,circ,intden,rawintden,ar,round,solidity\n";
+    output = "cell_id,area,mean,median,std,min,max,x,y,circ,intden,rawintden,ar,round,solidity\n";
 
     // Measure each ROI
     for (i = 0; i < roi_files.length; i++) {
-        print("  Processing ROI " + (i+1) + "/" + roi_files.length + ": " + roi_files[i]);
-
         // Open ROI mask
         open(roi_folder + roi_files[i]);
         roi_id = getImageID();
-        print("    Opened ROI mask, ID: " + roi_id);
 
         // Create selection from mask
         run("Create Selection");
 
         // Check if selection was created
         if (selectionType() == -1) {
-            print("    ⚠️  WARNING: No selection created from mask (empty ROI?)");
+            print("    ⚠️  WARNING: No selection created from mask in " + roi_files[i]);
             close();
             continue;
         }
-        print("    Created selection");
 
         // Switch to channel image
         selectImage(channel_id);
         run("Restore Selection");
-        print("    Restored selection on channel image");
 
         // Get measurements manually
-        run("Set Measurements...", "area mean standard min centroid shape integrated redirect=None decimal=3");
+        run("Set Measurements...", "area mean standard min median centroid shape integrated redirect=None decimal=3");
         run("Measure");
-        print("    Measured, nResults = " + nResults);
 
         // Extract values from Results table (last row)
         row = nResults - 1;
         area = getResult("Area", row);
         mean = getResult("Mean", row);
+        median = getResult("Median", row);
         std = getResult("StdDev", row);
         min = getResult("Min", row);
         max = getResult("Max", row);
@@ -115,10 +121,9 @@ function measureChannel(channel_name, channel_file, roi_files, roi_folder, prepr
 
         // Build CSV row
         cell_id = i + 1;
-        output = output + cell_id + "," + area + "," + mean + "," + std + "," + min + "," + max + ",";
+        output = output + cell_id + "," + area + "," + mean + "," + median + "," + std + "," + min + "," + max + ",";
         output = output + x + "," + y + "," + circ + "," + intden + "," + rawintden + ",";
         output = output + ar + "," + roundness + "," + solidity + "\n";
-        print("    ✓ Cell " + cell_id + ": area=" + area + ", mean=" + mean);
 
         // Clear results for next measurement
         run("Clear Results");
@@ -126,7 +131,6 @@ function measureChannel(channel_name, channel_file, roi_files, roi_folder, prepr
         // Close only the ROI mask
         selectImage(roi_id);
         close();
-        print("    Closed ROI mask");
 
         // Return to channel image
         selectImage(channel_id);
@@ -136,8 +140,6 @@ function measureChannel(channel_name, channel_file, roi_files, roi_folder, prepr
     selectImage(channel_id);
     close();
 
-    print("✓ " + channel_name + " complete (" + roi_files.length + " cells measured)");
-
     return output;
 }
 
@@ -146,19 +148,21 @@ function measureChannel(channel_name, channel_file, roi_files, roi_folder, prepr
 // MEASURE ALL CHANNELS AND BUILD OUTPUT
 // ============================================================================
 
-// Measure each channel
-actin_data = measureChannel("Actin-FITC", "Actin-FITC.tif", roi_files, roi_folder, "none");
-cd4_data = measureChannel("CD4-PerCP", "CD4-PerCP.tif", roi_files, roi_folder, "cd4");
-cd45ra_data = measureChannel("CD45RA-AF647", "CD45RA-AF647.tif", roi_files, roi_folder, "cd45ra");
-ccr7_data = measureChannel("CCR7-PE", "CCR7-PE.tif", roi_files, roi_folder, "ccr7");
+// Measure each channel (using configured filenames)
+actin_data = measureChannel("Actin-FITC", actinFile, roi_files, roi_folder, "none");
+cd4_data = measureChannel("CD4-PerCP", cd4File, roi_files, roi_folder, "cd4");
+cd45ra_af647_data = measureChannel("CD45RA-AF647", cd45raAF647File, roi_files, roi_folder, "cd45ra");
+cd45ra_sparkviolet_data = measureChannel("CD45RA-SparkViolet", cd45raSparkVioletFile, roi_files, roi_folder, "cd45ra");
+cd19car_data = measureChannel("CD19CAR-AF647", cd19carFile, roi_files, roi_folder, "none");
+ccr7_data = measureChannel("CCR7-PE", ccr7File, roi_files, roi_folder, "ccr7");
 
 // Save each channel's data to a file
 File.saveString(actin_data, dir + "actin-fitc-measurements.csv");
 File.saveString(cd4_data, dir + "cd4-percp-measurements.csv");
-File.saveString(cd45ra_data, dir + "cd45ra-af647-measurements.csv");
+File.saveString(cd45ra_af647_data, dir + "cd45ra-af647-measurements.csv");
+File.saveString(cd45ra_sparkviolet_data, dir + "cd45ra-sparkviolet-measurements.csv");
+File.saveString(cd19car_data, dir + "cd19car-af647-measurements.csv");
 File.saveString(ccr7_data, dir + "ccr7-pe-measurements.csv");
-
-print("\n✅ All measurements completed and saved!");
 
 // Disable batch mode
 setBatchMode(false);

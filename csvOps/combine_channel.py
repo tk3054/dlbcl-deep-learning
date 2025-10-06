@@ -20,11 +20,11 @@ from pathlib import Path
 # ============================================================================
 
 # Change these values to process different samples
-SAMPLE_FOLDER = "sample1"  # Options: "sample1", "sample2", "sample3"
-IMAGE_NUMBER = "5"         # Options: "1", "2", "3", "4", etc.
+SAMPLE_FOLDER = "sample2"  # Options: "sample1", "sample2", "sample3"
+IMAGE_NUMBER = "1"         # Options: "1", "2", "3", "4", etc.
 
 # Auto-generated paths
-BASE_PATH = "/Users/taeeonkong/Desktop/Project/Summer2025/20250729_CLLSaSa/1to10"
+BASE_PATH = "/Users/taeeonkong/Desktop/2025 Fall Images/09-26-2025 DLBCL"
 BASE_DIR = f"{BASE_PATH}/{SAMPLE_FOLDER}/{IMAGE_NUMBER}"
 
 
@@ -32,7 +32,7 @@ BASE_DIR = f"{BASE_PATH}/{SAMPLE_FOLDER}/{IMAGE_NUMBER}"
 # MAIN FUNCTION
 # ============================================================================
 
-def combine_measurements(sample_folder, image_number, base_path, verbose=True):
+def combine_measurements(sample_folder, image_number, base_path, channel_config=None, verbose=True):
     """
     Combine all channel measurement CSVs into a single table.
 
@@ -40,6 +40,7 @@ def combine_measurements(sample_folder, image_number, base_path, verbose=True):
         sample_folder: Sample folder name (e.g., "sample1", "sample2")
         image_number: Image number within sample (e.g., "1", "2", "3")
         base_path: Base directory path (e.g., "/path/to/data")
+        channel_config: Dictionary mapping channel keys to filenames (optional)
         verbose: Print progress messages
 
     Returns:
@@ -59,26 +60,44 @@ def combine_measurements(sample_folder, image_number, base_path, verbose=True):
     # Build paths
     base_dir = Path(f"{base_path}/{sample_folder}/{image_number}")
 
-    # Define channels and their CSV files
-    channels = {
-        'actin': base_dir / 'actin-fitc-measurements.csv',
-        'cd4': base_dir / 'cd4-percp-measurements.csv',
-        'cd45ra': base_dir / 'cd45ra-af647-measurements.csv',
-        'ccr7': base_dir / 'ccr7-pe-measurements.csv'
+    # Define channel patterns to search for (flexible naming, including car- prefix)
+    channel_patterns = {
+        'actin': ['actin-fitc-measurements.csv', 'car-actin-fitc-measurements.csv', 'Actin-FITC-measurements.csv', 'actin_measurements.csv'],
+        'cd4': ['cd4-percp-measurements.csv', 'car-cd4-percp-measurements.csv', 'CD4-PerCP-measurements.csv', 'cd4_measurements.csv'],
+        'cd45ra_af647': ['cd45ra-af647-measurements.csv', 'car-cd45ra-af647-measurements.csv', 'CD45RA-AF647-measurements.csv', 'cd45ra_measurements.csv'],
+        'cd45ra_sparkviolet': ['cd45ra-sparkviolet-measurements.csv', 'car-cd45ra-sparkviolet-measurements.csv', 'CD45RA-SparkViolet-measurements.csv'],
+        'cd19car': ['cd19car-af647-measurements.csv', 'car-cd19car-af647-measurements.csv', 'CD19CAR-AF647-measurements.csv'],
+        'ccr7': ['ccr7-pe-measurements.csv', 'car-ccr7-pe-measurements.csv', 'CCR7-PE-measurements.csv', 'ccr7_measurements.csv']
     }
 
-    # Check which CSVs exist
+    # Find CSVs that exist (try all patterns)
     available_channels = {}
-    for channel_name, csv_path in channels.items():
-        if csv_path.exists():
-            available_channels[channel_name] = csv_path
-        elif verbose:
-            print(f"⚠️  Missing: {csv_path.name}")
+    for channel_name, patterns in channel_patterns.items():
+        found = False
+        for pattern in patterns:
+            csv_path = base_dir / pattern
+            if csv_path.exists():
+                available_channels[channel_name] = csv_path
+                found = True
+                break
+
+        # If no pattern matched, try glob pattern as last resort
+        if not found:
+            # Try case-insensitive glob for any file containing the channel name
+            matching_files = list(base_dir.glob(f"*{channel_name}*measurements.csv"))
+            if matching_files:
+                available_channels[channel_name] = matching_files[0]
+                found = True
+
+        if not found and verbose:
+            print(f"⚠️  Missing: {channel_name}-measurements.csv")
 
     if not available_channels:
+        if verbose:
+            print("⚠️  No measurement CSVs found, skipping...\n")
         return {
-            'success': False,
-            'error': 'No measurement CSVs found',
+            'success': True,  # Don't fail, just skip
+            'skipped': True,
             'output_csv': None,
             'num_cells': 0,
             'num_channels': 0
@@ -91,7 +110,7 @@ def combine_measurements(sample_folder, image_number, base_path, verbose=True):
         print()
 
     # Columns to keep from each channel (intensity-related only)
-    intensity_cols = ['mean', 'std', 'min', 'max', 'intden', 'rawintden']
+    intensity_cols = ['mean', 'median', 'std', 'min', 'max', 'intden', 'rawintden']
 
     # Morphology columns to keep (from first channel only)
     morphology_cols = ['area', 'x', 'y', 'circ', 'ar', 'round', 'solidity']
@@ -107,22 +126,47 @@ def combine_measurements(sample_folder, image_number, base_path, verbose=True):
 
         if i == 0:
             # First channel: keep cell_id + morphology + intensity columns
-            cols_to_keep = ['cell_id'] + morphology_cols + intensity_cols
+            if 'cell_id' not in df.columns:
+                if verbose:
+                    print(f"  ⚠️  Warning: 'cell_id' column not found in {channel_name}, cannot use as base")
+                continue
+
+            cols_to_keep = ['cell_id']
+            # Add morphology columns that exist
+            for col in morphology_cols:
+                if col in df.columns:
+                    cols_to_keep.append(col)
+            # Add intensity columns that exist
+            for col in intensity_cols:
+                if col in df.columns:
+                    cols_to_keep.append(col)
+
             combined_df = df[cols_to_keep].copy()
 
-            # Rename intensity columns with channel prefix
-            rename_map = {col: f"{channel_name}_{col}" for col in intensity_cols}
+            # Rename intensity columns with channel prefix (don't rename cell_id or morphology)
+            rename_map = {col: f"{channel_name}_{col}" for col in intensity_cols if col in cols_to_keep}
             combined_df = combined_df.rename(columns=rename_map)
 
             if verbose:
                 print(f"  Base table: {len(combined_df)} cells, {len(combined_df.columns)} columns")
         else:
             # Subsequent channels: keep cell_id + intensity columns only
-            cols_to_keep = ['cell_id'] + intensity_cols
+            # Make sure we always keep cell_id
+            if 'cell_id' not in df.columns:
+                if verbose:
+                    print(f"  ⚠️  Warning: 'cell_id' column not found in {channel_name}, skipping this channel")
+                continue
+
+            cols_to_keep = ['cell_id']
+            # Add intensity columns that exist
+            for col in intensity_cols:
+                if col in df.columns:
+                    cols_to_keep.append(col)
+
             channel_df = df[cols_to_keep].copy()
 
-            # Rename intensity columns with channel prefix
-            rename_map = {col: f"{channel_name}_{col}" for col in intensity_cols}
+            # Rename intensity columns with channel prefix (don't rename cell_id)
+            rename_map = {col: f"{channel_name}_{col}" for col in intensity_cols if col in cols_to_keep}
             channel_df = channel_df.rename(columns=rename_map)
 
             # Merge with combined table
@@ -138,15 +182,20 @@ def combine_measurements(sample_folder, image_number, base_path, verbose=True):
     combined_df.insert(0, 'sample', sample_folder)
     combined_df.insert(1, 'image', image_number)
 
-    # Save combined CSV to sample folder (e.g., 1to10/sample1/combined_measurements.csv)
-    output_dir = Path(base_path) / sample_folder
-    output_csv = output_dir / 'combined_measurements.csv'
+    # Add unique_id column (format: sample_image_cellid)
+    combined_df['unique_id'] = combined_df.apply(
+        lambda row: f"{row['sample']}_{row['image']}_{row['cell_id']}", axis=1
+    )
+    # Move unique_id to first column
+    cols = list(combined_df.columns)
+    cols = [cols[-1]] + cols[:-1]  # Move last column to first
+    combined_df = combined_df[cols]
 
-    # Check if file exists - if so, append without header
-    if output_csv.exists():
-        combined_df.to_csv(output_csv, mode='a', header=False, index=False)
-    else:
-        combined_df.to_csv(output_csv, index=False)
+    # Save combined CSV to image folder (e.g., sample1/1/combined_measurements.csv)
+    output_csv = base_dir / 'combined_measurements.csv'
+
+    # Always overwrite (don't append)
+    combined_df.to_csv(output_csv, index=False)
 
     if verbose:
         print(f"\n{'='*60}")
