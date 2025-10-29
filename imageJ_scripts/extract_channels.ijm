@@ -30,8 +30,8 @@ setBatchMode(true);
 // Suppress Results display
 setBatchMode("hide");
 
-// Get list of ROI files (using shrunk ROIs for cleaner measurements)
-roi_folder = dir + "cell_rois_shrunk/";
+// Get list of ROI files (folder supplied by Python)
+roi_folder = dir + "ROI_DIR_PLACEHOLDER/";
 roi_list = getFileList(roi_folder);
 
 // Filter to only .tif files and sort

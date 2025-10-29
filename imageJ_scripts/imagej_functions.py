@@ -95,7 +95,7 @@ def preprocess_actin(sample_folder, image_number, base_path, ij=None, create_mas
         }
 
 
-def load_rois(sample_folder, image_number, base_path, ij=None, verbose=True):
+def load_rois(sample_folder, image_number, base_path, roi_dir_name='cell_rois', ij=None, verbose=True):
     """
     Load cell ROIs onto original image in ImageJ.
 
@@ -133,11 +133,14 @@ def load_rois(sample_folder, image_number, base_path, ij=None, verbose=True):
     ).replace(
         'basePath = "BASE_PATH_PLACEHOLDER";',
         f'basePath = "{base_path}";'
+    ).replace(
+        'ROI_DIR_PLACEHOLDER',
+        roi_dir_name
     )
 
     # Count ROI files
     base_dir = f"{base_path}/{sample_folder}/{image_number}"
-    roi_dir = Path(base_dir) / "cell_rois"
+    roi_dir = Path(base_dir) / roi_dir_name
     num_rois = len(list(roi_dir.glob("*.tif"))) if roi_dir.exists() else 0
 
     if verbose:
@@ -296,7 +299,7 @@ def make_duplicate_jpg(sample_folder, image_number, base_path, channel_config=No
         }
 
 
-def extract_channel_measurements(sample_folder, image_number, base_path, channel_config=None, ij=None, verbose=True):
+def extract_channel_measurements(sample_folder, image_number, base_path, channel_config=None, roi_dir_name='cell_rois', ij=None, verbose=True):
     """
     Extract fluorescence measurements for all channels.
 
@@ -364,6 +367,9 @@ def extract_channel_measurements(sample_folder, image_number, base_path, channel
     ).replace(
         'ccr7File = "CCR7_FILE_PLACEHOLDER";',
         f'ccr7File = "{channel_config.get("ccr7", "CCR7-PE.tif")}";'
+    ).replace(
+        'ROI_DIR_PLACEHOLDER',
+        roi_dir_name
     )
 
     # Count ROIs first

@@ -43,7 +43,7 @@ CHANNEL_CONFIG = {
     'actin': 'Actin-FITC.tif',           # Change to your actual filenames
     'cd4': 'CD4-PerCP.tif',
     'cd45ra_af647': 'CD45RA-AF647.tif',
-    'cd45ra_sparkviolet': 'CD45RA-SparkViolet.tif',
+    'cd45ra_sparkviolet': 'CD45RA-SparkViolet.tif',  # plots label this as "PacBlue"
     'cd19car': 'CD19CAR-AF647.tif',
     'ccr7': 'CCR7-PE.tif',
 }

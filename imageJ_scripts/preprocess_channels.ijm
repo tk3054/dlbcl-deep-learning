@@ -3,11 +3,7 @@
 //
 // FUNCTIONALITY:
 // - Detects all channel TIF files automatically
-// - Applies appropriate preprocessing for each channel:
-//   * CCR7-PE: Background subtraction (100px) + Gaussian blur (sigma=8)
-//   * CD45RA: Background subtraction (500px) + Gaussian blur (sigma=8)
-//   * CD4-PerCP: Background subtraction (100px sliding)
-//   * Others: Copy as-is (no preprocessing)
+// - Applies a 100px sliding paraboloid background subtraction to every channel
 // - Saves as processed_<channelname>.tif
 //
 // Author: Automated pipeline
@@ -75,24 +71,6 @@ function getChannelNameFromFile(fileName) {
     return baseName;
 }
 
-/**
- * Determine preprocessing type based on channel name
- */
-function getPreprocessType(channelName) {
-    upperName = toUpperCase(channelName);
-
-    if (indexOf(upperName, "CCR7") >= 0) {
-        return "ccr7";
-    } else if (indexOf(upperName, "CD45RA") >= 0) {
-        return "cd45ra";
-    } else if (indexOf(upperName, "CD4") >= 0) {
-        return "cd4";
-    } else {
-        return "none";
-    }
-}
-
-
 // ============================================================================
 // DETECT ALL CHANNELS
 // ============================================================================
@@ -123,29 +101,15 @@ print("\nPreprocessing channels...");
 for (i = 0; i < allChannels.length; i++) {
     channelFile = allChannels[i];
     channelName = getChannelNameFromFile(channelFile);
-    preprocessType = getPreprocessType(channelName);
 
-    print("  Processing channel: " + channelName + " (type: " + preprocessType + ")");
+    print("  Processing channel: " + channelName + " (sliding paraboloid, 100px)");
 
     // Open the channel file
     open(dir + channelFile);
     original_id = getImageID();
 
-    // Apply preprocessing based on channel type
-    if (preprocessType == "ccr7") {
-        print("    Applying: Background subtraction (50px) + Gaussian blur (sigma=8)");
-        run("Subtract Background...", "rolling=100");
-        run("Gaussian Blur...", "sigma=8");
-    } else if (preprocessType == "cd45ra") {
-        print("    Applying: Background subtraction (500px) + Gaussian blur (sigma=8)");
-        run("Subtract Background...", "rolling=500");
-        run("Gaussian Blur...", "sigma=8");
-    } else if (preprocessType == "cd4") {
-        print("    Applying: Background subtraction (100px sliding)");
-        run("Subtract Background...", "rolling=100 sliding");
-    } else {
-        print("    No preprocessing needed, copying as-is");
-    }
+    // Apply sliding paraboloid background subtraction
+    run("Subtract Background...", "rolling=100 sliding");
 
     // Save processed file
     processedFilename = "processed_" + channelName + ".tif";

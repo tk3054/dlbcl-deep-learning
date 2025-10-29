@@ -12,7 +12,7 @@ basePath = "BASE_PATH_PLACEHOLDER";
 
 // Auto-generated paths
 baseDir = basePath + "/" + sampleFolder + "/" + imageNumber + "/";
-roi_folder = baseDir + "cell_rois_shrunk/";  // Use shrunk ROIs for measurements
+roi_folder = baseDir + "ROI_DIR_PLACEHOLDER/";  // ROI folder provided by Python
 original_image = baseDir + "original_image.tif";
 
 

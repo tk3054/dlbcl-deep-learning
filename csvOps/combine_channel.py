@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 """
 Combine Channel Measurements
-Merges all channel measurement CSVs into a single wide-format table
+Merges channel measurement CSVs into a single wide-format table.
 
-Each channel's measurements are prefixed with the channel name.
-Morphology columns (area, x, y, etc.) are kept from first channel only.
+Each channel's measurements are prefixed with the channel name and morphology
+columns (area, x, y, etc.) are retained from the first included channel only.
 
-Usage:
-    python combine_measurements.py
-    (Edit SAMPLE_FOLDER and IMAGE_NUMBER below to change inputs)
+CLI usage examples:
+    python combine_channel.py sample2 7 --null-channels ccr7
+    python combine_channel.py sample1 4 --include-channels actin cd4 cd45ra_sparkviolet
 """
 
-import pandas as pd
+import argparse
 from pathlib import Path
+
+import numpy as np
+import pandas as pd
 
 
 # ============================================================================
@@ -20,7 +23,7 @@ from pathlib import Path
 # ============================================================================
 
 # Change these values to process different samples
-SAMPLE_FOLDER = "sample2"  # Options: "sample1", "sample2", "sample3"
+SAMPLE_FOLDER = "sample1"  # Options: "sample1", "sample2", "sample3"
 IMAGE_NUMBER = "1"         # Options: "1", "2", "3", "4", etc.
 
 # Auto-generated paths
@@ -32,7 +35,8 @@ BASE_DIR = f"{BASE_PATH}/{SAMPLE_FOLDER}/{IMAGE_NUMBER}"
 # MAIN FUNCTION
 # ============================================================================
 
-def combine_measurements(sample_folder, image_number, base_path, channel_config=None, verbose=True):
+def combine_measurements(sample_folder, image_number, base_path, channel_config=None,
+                         include_channels=None, null_channels=None, verbose=True):
     """
     Combine all channel measurement CSVs into a single table.
 
@@ -41,6 +45,9 @@ def combine_measurements(sample_folder, image_number, base_path, channel_config=
         image_number: Image number within sample (e.g., "1", "2", "3")
         base_path: Base directory path (e.g., "/path/to/data")
         channel_config: Dictionary mapping channel keys to filenames (optional)
+        include_channels: Optional ordered list of channel keys to include
+        null_channels: Optional list of channel keys whose intensity columns
+                       should be set to NaN after combining
         verbose: Print progress messages
 
     Returns:
@@ -65,14 +72,30 @@ def combine_measurements(sample_folder, image_number, base_path, channel_config=
         'actin': ['actin-fitc-measurements.csv', 'car-actin-fitc-measurements.csv', 'Actin-FITC-measurements.csv', 'actin_measurements.csv'],
         'cd4': ['cd4-percp-measurements.csv', 'car-cd4-percp-measurements.csv', 'CD4-PerCP-measurements.csv', 'cd4_measurements.csv'],
         'cd45ra_af647': ['cd45ra-af647-measurements.csv', 'car-cd45ra-af647-measurements.csv', 'CD45RA-AF647-measurements.csv', 'cd45ra_measurements.csv'],
-        'cd45ra_sparkviolet': ['cd45ra-sparkviolet-measurements.csv', 'car-cd45ra-sparkviolet-measurements.csv', 'CD45RA-SparkViolet-measurements.csv'],
+        'cd45ra_sparkviolet': [
+            'cd45ra-sparkviolet-measurements.csv',
+            'car-cd45ra-sparkviolet-measurements.csv',
+            'CD45RA-SparkViolet-measurements.csv',
+            'CD45RA-PacBlue-measurements.csv',
+        ],
         'cd19car': ['cd19car-af647-measurements.csv', 'car-cd19car-af647-measurements.csv', 'CD19CAR-AF647-measurements.csv'],
         'ccr7': ['ccr7-pe-measurements.csv', 'car-ccr7-pe-measurements.csv', 'CCR7-PE-measurements.csv', 'ccr7_measurements.csv']
     }
 
+    # Determine which channel keys to process (preserve requested order)
+    if include_channels:
+        requested_channels = list(include_channels)
+        missing = [ch for ch in requested_channels if ch not in channel_patterns]
+        if verbose and missing:
+            print(f"⚠️  Unknown channel keys requested: {missing}")
+        channel_keys = [ch for ch in requested_channels if ch in channel_patterns]
+    else:
+        channel_keys = list(channel_patterns.keys())
+
     # Find CSVs that exist (try all patterns)
     available_channels = {}
-    for channel_name, patterns in channel_patterns.items():
+    for channel_name in channel_keys:
+        patterns = channel_patterns[channel_name]
         found = False
         for pattern in patterns:
             csv_path = base_dir / pattern
@@ -103,7 +126,7 @@ def combine_measurements(sample_folder, image_number, base_path, channel_config=
             'num_channels': 0
         }
 
-    if verbose:
+    if verbose and available_channels:
         print(f"Found {len(available_channels)} channel CSVs:")
         for name in available_channels.keys():
             print(f"  • {name}")
@@ -191,6 +214,16 @@ def combine_measurements(sample_folder, image_number, base_path, channel_config=
     cols = [cols[-1]] + cols[:-1]  # Move last column to first
     combined_df = combined_df[cols]
 
+    # Optionally null out specific channel intensities
+    if null_channels:
+        for channel_name in null_channels:
+            prefix = f"{channel_name}_"
+            cols_to_null = [col for col in combined_df.columns if col.startswith(prefix)]
+            if cols_to_null and verbose:
+                print(f"  • Setting channel '{channel_name}' columns to NaN ({len(cols_to_null)} columns)")
+            for col in cols_to_null:
+                combined_df[col] = np.nan
+
     # Save combined CSV to image folder (e.g., sample1/1/combined_measurements.csv)
     output_csv = base_dir / 'combined_measurements.csv'
 
@@ -223,17 +256,68 @@ def combine_measurements(sample_folder, image_number, base_path, channel_config=
 # ============================================================================
 
 def main():
-    result = combine_measurements(
-        sample_folder=SAMPLE_FOLDER,
-        image_number=IMAGE_NUMBER,
-        base_path=BASE_PATH,
-        verbose=True
-    )
+    parser = argparse.ArgumentParser(description="Combine channel measurement CSVs into a single table.")
+    parser.add_argument("sample_folder", nargs="?", default=SAMPLE_FOLDER,
+                        help="Sample folder name (defaults to value near top of file)")
+    parser.add_argument("image_number", nargs="?", default=IMAGE_NUMBER,
+                        help="Image number within the sample (defaults to value near top of file)")
+    parser.add_argument("--base-path", default=BASE_PATH,
+                        help="Base directory containing sample folders")
+    parser.add_argument("--include-channels", nargs="*",
+                        help="Channel keys to include (order preserved); default includes all detected channels")
+    parser.add_argument("--null-channels", nargs="*",
+                        help="Channel keys whose intensity columns will be set to NaN after combining")
+    parser.add_argument("--all-images", action="store_true",
+                        help="Process every image folder inside the sample (ignores IMAGE_NUMBER argument)")
+    parser.add_argument("--quiet", action="store_true", help="Suppress verbose logging")
 
-    if not result['success']:
-        print(f"\n✗ Error: {result['error']}")
-        import sys
-        sys.exit(1)
+    args = parser.parse_args()
+
+    base_path = Path(args.base_path)
+    sample_path = base_path / args.sample_folder
+
+    if args.all_images:
+        if not sample_path.exists():
+            print(f"\n✗ Error: Sample path not found: {sample_path}")
+            import sys
+            sys.exit(1)
+
+        image_dirs = sorted(
+            [item.name for item in sample_path.iterdir() if item.is_dir()],
+            key=lambda x: (not x.isdigit(), x if not x.isdigit() else int(x))
+        )
+
+        if not image_dirs:
+            print(f"\n⚠️  No image folders found in {sample_path}")
+            return
+
+        for img in image_dirs:
+            result = combine_measurements(
+                sample_folder=args.sample_folder,
+                image_number=img,
+                base_path=args.base_path,
+                include_channels=args.include_channels,
+                null_channels=args.null_channels,
+                verbose=not args.quiet
+            )
+            if not result['success']:
+                print(f"\n✗ Error combining {args.sample_folder}/{img}: {result['error']}")
+                import sys
+                sys.exit(1)
+    else:
+        result = combine_measurements(
+            sample_folder=args.sample_folder,
+            image_number=args.image_number,
+            base_path=args.base_path,
+            include_channels=args.include_channels,
+            null_channels=args.null_channels,
+            verbose=not args.quiet
+        )
+
+        if not result['success']:
+            print(f"\n✗ Error: {result['error']}")
+            import sys
+            sys.exit(1)
 
 
 if __name__ == "__main__":

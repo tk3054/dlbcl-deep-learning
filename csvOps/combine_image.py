@@ -24,7 +24,7 @@ except ImportError:
 # CONFIGURATION - EDIT THESE
 # ============================================================================
 
-SAMPLES_TO_PROCESS = [1, 2, 3, 4, 5, 6]  # List of sample numbers to process, e.g., [1, 2, 3] or [1]
+SAMPLES_TO_PROCESS = [1,2]  # List of sample numbers to process, e.g., [1, 2, 3] or [1]
 
 # ============================================================================
 # MAIN

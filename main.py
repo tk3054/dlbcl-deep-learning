@@ -16,8 +16,16 @@ from process_single_image import run_pipeline, PARAMS
 # CONFIGURATION - EDIT THESE
 # ============================================================================
 
-BASE_PATH = "/Users/taeeonkong/Desktop/2025 Fall Images/09-26-2025 DLBCL"
-SAMPLES_TO_PROCESS = [1, 2, 3, 4, 5, 6]  # List of sample numbers to process, e.g., [1, 2, 3] or [1]
+BASE_PATH = "/Users/taeeonkong/Desktop/10-16-2025/new objective"
+SAMPLES_TO_PROCESS = [2]  # List of sample numbers to process, e.g., [1, 2, 3] or [1]
+
+# Optional per-sample image filtering. Define image numbers as ints.
+IMAGES_TO_PROCESS = {
+    1: [
+        4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 15, 16, 17,
+        22, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+    ],
+}
 
 # Channel filenames - Edit these if your channel files have different names
 CHANNEL_CONFIG = {
@@ -25,8 +33,17 @@ CHANNEL_CONFIG = {
     'cd4': 'CD4-PerCP.tif',
     'cd45ra_af647': 'CD45RA-AF647.tif',
     'cd45ra_sparkviolet': 'CD45RA-SparkViolet.tif',
-    'cd19car': 'CD19CAR-AF647.tif',
+    # 'cd19car': 'CD19CAR-AF647.tif',
     'ccr7': 'CCR7-PE.tif',
+}
+
+# Optional channel subset when combining measurements.
+# Set to None to include every channel that exists.
+CHANNELS_TO_COMBINE = ['actin', 'cd4', 'cd45ra_sparkviolet', 'ccr7']
+
+# Per-sample channel nullification (set intensity columns to NaN)
+CHANNELS_TO_NULL = {
+    2: ['ccr7'],  # For sample2, blank out CCR7 intensities
 }
 
 # ============================================================================
@@ -50,9 +67,39 @@ def main():
     # Sort by sample number
     def extract_sample_number(name):
         import re
-        # Extract digits after "sample" or "Sample"
-        match = re.search(r'sample(\d+)', name, re.IGNORECASE)
+        # Extract digits appearing after "sample" (allow spaces or separators)
+        match = re.search(r'sample\D*(\d+)', name, re.IGNORECASE)
         return int(match.group(1)) if match else 0
+
+    def filter_image_folders(sample_folder, folders, announce=False):
+        sample_number = extract_sample_number(sample_folder)
+        allowed = IMAGES_TO_PROCESS.get(sample_number)
+        if allowed is None:
+            return folders
+
+        if len(allowed) == 0:
+            if announce:
+                print(
+                    f"No image restrictions configured for {sample_folder}. "
+                    "Processing all image folders."
+                )
+            return folders
+
+        allowed_strings = {str(item) for item in allowed}
+        filtered = [folder for folder in folders if folder in allowed_strings]
+
+        if announce:
+            if filtered:
+                print(
+                    f"Restricting to configured images for {sample_folder}: "
+                    f"{', '.join(sorted(filtered, key=lambda x: int(x) if x.isdigit() else x))}"
+                )
+            else:
+                print(
+                    f"Configured image list for {sample_folder} produced no matches. "
+                    "Skipping this sample."
+                )
+        return filtered
 
     sample_folders = sorted(sample_folders, key=extract_sample_number)
 
@@ -83,13 +130,13 @@ def main():
     all_results = []
 
     for sample_idx, sample_folder in enumerate(sample_folders, 1):
+        sample_number = extract_sample_number(sample_folder)
         sample_path = base_path_obj / sample_folder
 
         # Find all subdirectories (image folders) - automatically process all found
         image_folders = [item.name for item in sample_path.iterdir() if item.is_dir()]
-
-        # Sort alphabetically/numerically
-        image_folders = sorted(image_folders)
+        image_folders = sorted(image_folders, key=lambda x: int(x) if x.isdigit() else x)
+        image_folders = filter_image_folders(sample_folder, image_folders, announce=True)
 
         if not image_folders:
             print(f"⚠️  No image folders found in {sample_folder}, skipping...")
@@ -114,6 +161,8 @@ def main():
                     segmentation_method='cellpose',
                     params=PARAMS,
                     channel_config=CHANNEL_CONFIG,
+                    combine_channels=CHANNELS_TO_COMBINE,
+                    null_channels=CHANNELS_TO_NULL.get(sample_number),
                     ij=ij,  # Reuse ImageJ instance
                     verbose=True
                 )
@@ -169,14 +218,19 @@ def main():
         from csvOps.combine_channel import combine_measurements
 
         for sample_folder in sample_folders:
+            sample_number = extract_sample_number(sample_folder)
             sample_path = base_path_obj / sample_folder
             image_folders = [item.name for item in sample_path.iterdir() if item.is_dir()]
+            image_folders = sorted(image_folders, key=lambda x: int(x) if x.isdigit() else x)
+            image_folders = filter_image_folders(sample_folder, image_folders)
 
-            for image_number in sorted(image_folders):
+            for image_number in image_folders:
                 combine_measurements(
                     sample_folder=sample_folder,
                     image_number=image_number,
                     base_path=BASE_PATH,
+                    include_channels=CHANNELS_TO_COMBINE,
+                    null_channels=CHANNELS_TO_NULL.get(sample_number),
                     verbose=False  # Quiet mode
                 )
         print("✓ Image-level combination complete\n")

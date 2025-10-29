@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
     from main import BASE_PATH
 except ImportError:
-    BASE_PATH = "/Users/taeeonkong/Desktop/2025 Fall Images/09-26-2025 DLBCL"
+    BASE_PATH = "'/Users/taeeonkong/Desktop/10-16-2025/new objective"
 
 
 # ============================================================================
@@ -34,10 +34,10 @@ except ImportError:
 
 # Manual thresholds - Edit these values based on your data
 THRESHOLDS = {
-    'cd4': 125,      # CD4-PerCP
-    'cd45ra': 210,   # CD45RA (will use SparkViolet, or average of AF647+SparkViolet if both present)
-    'ccr7': 115,     # CCR7-PE
-    'cd19car': 430,  # CD19CAR-AF647
+    'cd4': 260,      # CD4-PerCP
+    'cd45ra': 120,   # CD45RA (uses SparkViolet channel; plots label it as PacBlue)
+    'ccr7': 114,     # CCR7-PE
+    # 'cd19car': 430,  # CD19CAR-AF647
 }
 
 # Which CD45RA channel to use? Options: 'af647', 'sparkviolet', 'average', 'max'
@@ -135,13 +135,21 @@ def classify_cell(row, thresholds):
     cd4 = row['cd4_median'] if 'cd4_median' in row.index else row['cd4_mean']
     cd45ra = get_cd45ra_value(row, CD45RA_CHANNEL_MODE)
     ccr7 = row['ccr7_median'] if 'ccr7_median' in row.index else row['ccr7_mean']
-    cd19car = row['cd19car_median'] if 'cd19car_median' in row.index else row['cd19car_mean']
+    if 'cd19car_median' in row.index:
+        cd19car = row['cd19car_median']
+    elif 'cd19car_mean' in row.index:
+        cd19car = row['cd19car_mean']
+    else:
+        cd19car = None
 
     # Determine positivity
     is_cd4_pos = cd4 > thresholds['cd4']
     is_cd45ra_pos = cd45ra > thresholds['cd45ra']
     is_ccr7_pos = ccr7 > thresholds['ccr7']
-    is_car_pos = cd19car > thresholds['cd19car']
+    car_threshold = thresholds.get('cd19car')
+    is_car_pos = bool(
+        cd19car is not None and car_threshold is not None and cd19car > car_threshold
+    )
 
     # Determine memory subset based on CD45RA and CCR7
     if is_cd45ra_pos and is_ccr7_pos:
@@ -161,13 +169,13 @@ def classify_cell(row, thresholds):
         if is_cd4_pos:
             subset = f"CAR-T CD4+ {memory_subset}"
         else:
-            subset = f"CAR-T CD4- {memory_subset}"
+            subset = f"CAR-T CD8+ {memory_subset}"
     elif not is_cd4_pos:
-        cell_type = "CD4-"
-        subset = "N/A"
+        cell_type = "CD8+"
+        subset = f"CD8+ {memory_subset}"
     else:
         cell_type = "CD4+"
-        subset = memory_subset
+        subset = f"CD4+ {memory_subset}"
 
     return {
         'cd4_positive': is_cd4_pos,
@@ -198,7 +206,9 @@ def classify_tcells(base_path, input_csv=None, output_csv=None, verbose=True):
             - 'success': Boolean
             - 'output_csv': Path to output file
             - 'num_cells': Total cells
+            - 'num_car_pos': Number of CAR-T cells
             - 'num_cd4_pos': Number of CD4+ cells
+            - 'num_cd8_pos': Number of CD8+ cells
             - 'subset_counts': Dict of subset counts
     """
     if input_csv is None:
@@ -251,8 +261,8 @@ def classify_tcells(base_path, input_csv=None, output_csv=None, verbose=True):
     df['tcell_subset'] = [c['tcell_subset'] for c in classifications]
 
     # Calculate statistics
-    num_car_pos = df['car_positive'].sum()
-    num_cd4_pos = df['cd4_positive'].sum()
+    cell_type_counts = df['cell_type'].value_counts()
+    lineage_counts = cell_type_counts.to_dict()
     subset_counts = df['tcell_subset'].value_counts().to_dict()
 
     if verbose:
@@ -260,11 +270,27 @@ def classify_tcells(base_path, input_csv=None, output_csv=None, verbose=True):
         print("CLASSIFICATION RESULTS")
         print("="*60)
         print(f"Total cells: {len(df)}")
-        print(f"CAR-T cells: {num_car_pos} ({num_car_pos/len(df)*100:.1f}%)")
-        print(f"CD4+ cells: {num_cd4_pos} ({num_cd4_pos/len(df)*100:.1f}%)")
-        print(f"CD4- cells: {len(df) - num_cd4_pos - num_car_pos} ({(len(df)-num_cd4_pos-num_car_pos)/len(df)*100:.1f}%)")
+        print("\nLineage distribution:")
+        for lineage in ["CAR-T", "CD4+", "CD8+"]:
+            count = int(lineage_counts.get(lineage, 0))
+            pct = count / len(df) * 100 if len(df) else 0
+            print(f"  {lineage}: {count} ({pct:.1f}%)")
 
-        print("\nAll cell types:")
+        print("\nChannel positivity:")
+        channel_positive_series = [
+            ("CD4", df['cd4_positive']),
+            ("CD45RA", df['cd45ra_positive']),
+            ("CCR7", df['ccr7_positive']),
+        ]
+        if thresholds.get('cd19car') is not None:
+            channel_positive_series.append(("CD19CAR", df['car_positive']))
+
+        for label, series in channel_positive_series:
+            count = int(series.sum())
+            pct = count / len(df) * 100 if len(df) else 0
+            print(f"  {label}: {count} ({pct:.1f}%)")
+
+        print("\nSubset distribution:")
         for subset, count in sorted(subset_counts.items()):
             pct = count / len(df) * 100
             print(f"  {subset}: {count} ({pct:.1f}%)")
@@ -277,11 +303,17 @@ def classify_tcells(base_path, input_csv=None, output_csv=None, verbose=True):
         print(f"\n✓ Saved classified data to: {output_csv}")
         print("="*60 + "\n")
 
+    num_car_pos = int(lineage_counts.get("CAR-T", 0))
+    num_cd4_pos = int(lineage_counts.get("CD4+", 0))
+    num_cd8_pos = int(lineage_counts.get("CD8+", 0))
+
     return {
         'success': True,
         'output_csv': str(output_path),
         'num_cells': len(df),
-        'num_cd4_pos': int(num_cd4_pos),
+        'num_car_pos': num_car_pos,
+        'num_cd4_pos': num_cd4_pos,
+        'num_cd8_pos': num_cd8_pos,
         'subset_counts': subset_counts,
         'thresholds': thresholds
     }

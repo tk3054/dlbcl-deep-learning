@@ -9,6 +9,7 @@ Usage:
 """
 
 import imagej
+from pathlib import Path
 
 # Import pipeline modules
 import imageJ_scripts.imagej_functions as imagej_functions
@@ -17,6 +18,47 @@ import segmentation.shrink_roi as shrink_roi
 import process_image.extract_roi_crops as extract_roi_crops
 import process_image.visualize_rois_on_jpg as visualize_rois_on_jpg
 import csvOps.combine_channel as combine_channel
+
+
+# Optional aliases for channel filenames when multiple naming conventions exist
+CHANNEL_FILENAME_ALIASES = {
+    'cd45ra_sparkviolet': ['CD45RA-PacBlue.tif'],
+}
+
+
+def resolve_channel_filenames(channel_config, base_path, sample_folder, image_number, verbose=False):
+    """
+    Resolve channel filenames to match what actually exists on disk.
+
+    Falls back to known aliases (e.g., SparkViolet) when the configured name
+    is not found for the current image.
+    """
+    resolved = channel_config.copy()
+    base_dir_path = Path(base_path) / sample_folder / image_number
+
+    for key, filename in channel_config.items():
+        candidates = [filename]
+        aliases = CHANNEL_FILENAME_ALIASES.get(key, [])
+
+        for alias in aliases:
+            if alias not in candidates:
+                candidates.append(alias)
+
+        selected = None
+        for candidate in candidates:
+            if (base_dir_path / candidate).exists() or (base_dir_path / f"processed_{candidate}").exists():
+                selected = candidate
+                break
+
+        if selected:
+            if selected != filename and verbose:
+                print(f"  • Channel '{key}': using '{selected}' (found on disk)")
+            resolved[key] = selected
+        else:
+            if verbose:
+                print(f"  • Channel '{key}': no matching file found for candidates {candidates}")
+
+    return resolved
 
 
 # ============================================================================
@@ -53,7 +95,8 @@ PARAMS = {
 
 def run_pipeline(sample_folder, image_number, base_path,
                  segmentation_method='cellpose',
-                 params=None, channel_config=None, ij=None, verbose=False):
+                 params=None, channel_config=None, combine_channels=None,
+                 null_channels=None, ij=None, verbose=False):
     """
     Run complete cell analysis pipeline for one image.
 
@@ -64,6 +107,8 @@ def run_pipeline(sample_folder, image_number, base_path,
         segmentation_method: 'cellpose' or 'watershed'
         params: Dictionary of pipeline parameters
         channel_config: Dictionary mapping channel keys to filenames
+        combine_channels: Optional list of channel keys to include in combined CSV
+        null_channels: Optional list of channel keys to nullify after combining
         ij: ImageJ instance (if None, will initialize)
         verbose: Print progress messages
 
@@ -97,6 +142,20 @@ def run_pipeline(sample_folder, image_number, base_path,
             'cd19car': 'CD19CAR-AF647.tif',
             'ccr7': 'CCR7-PE.tif',
         }
+    else:
+        channel_config = channel_config.copy()
+
+    base_dir_path = Path(base_path) / sample_folder / image_number
+
+    channel_config = resolve_channel_filenames(
+        channel_config=channel_config,
+        base_path=base_path,
+        sample_folder=sample_folder,
+        image_number=image_number,
+        verbose=verbose
+    )
+
+    roi_dir_name = "cell_rois"
 
     try:
         # ====================================================================
@@ -137,23 +196,23 @@ def run_pipeline(sample_folder, image_number, base_path,
             return {'success': False, 'error': f"Segmentation failed: {result['error']}", 'results': results}
 
         # ====================================================================
-        # STEP 3: Shrink ROIs
+        # STEP 3: Shrink ROIs (disabled)
         # ====================================================================
-        if verbose:
-            print("\nSTEP 3: Shrink ROIs")
-            print("-" * 80)
-
-        base_dir = f"{base_path}/{sample_folder}/{image_number}"
-        result_shrink = shrink_roi.shrink_all_rois(
-            base_dir=base_dir,
-            shrink_pixels=params.get('shrink_pixels', 3),
-            output_suffix="_shrunk",
-            verbose=verbose
-        )
-        results['shrink_rois'] = result_shrink
-
-        if not result_shrink['success']:
-            return {'success': False, 'error': f"ROI shrinking failed: {result_shrink['error']}", 'results': results}
+        # if verbose:
+        #     print("\nSTEP 3: Shrink ROIs")
+        #     print("-" * 80)
+        #
+        # base_dir = f"{base_path}/{sample_folder}/{image_number}"
+        # result_shrink = shrink_roi.shrink_all_rois(
+        #     base_dir=base_dir,
+        #     shrink_pixels=params.get('shrink_pixels', 3),
+        #     output_suffix="_shrunk",
+        #     verbose=verbose
+        # )
+        # results['shrink_rois'] = result_shrink
+        #
+        # if not result_shrink['success']:
+        #     return {'success': False, 'error': f"ROI shrinking failed: {result_shrink['error']}", 'results': results}
 
         # ====================================================================
         # STEP 4: Preprocess Channels
@@ -202,7 +261,7 @@ def run_pipeline(sample_folder, image_number, base_path,
         #     print("\nSTEP 5: Extract ROI Crops")
         #     print("-" * 80)
 
-        # 5a: TIF version (full dynamic range) - use original file + shrunk ROIs
+        # 5a: TIF version (full dynamic range) - use original file + ROIs
         result_tif = extract_roi_crops.extract_roi_crops(
             sample_folder=sample_folder,
             image_number=image_number,
@@ -210,15 +269,12 @@ def run_pipeline(sample_folder, image_number, base_path,
             source_image=channel_config.get('actin', 'Actin-FITC.tif'),
             output_dir_name="roi_crops_tif",
             use_transparency=False,
-            roi_dir_name="cell_rois_shrunk",
+            roi_dir_name=roi_dir_name,
             verbose=verbose
         )
         results['roi_crops_tif'] = result_tif
 
-        # 5b: PNG with white background - use original Actin + shrunk ROIs
-        from pathlib import Path
-        base_dir_path = Path(f"{base_path}/{sample_folder}/{image_number}")
-
+        # 5b: PNG with white background - use original Actin + ROIs
         # Use original Actin file for PNG crops
         original_actin = channel_config.get('actin', 'Actin-FITC.tif')
         if (base_dir_path / original_actin).exists():
@@ -230,12 +286,12 @@ def run_pipeline(sample_folder, image_number, base_path,
                 output_dir_name="roi_crops_whiteBg",
                 use_transparency=True,
                 background_color=255,
-                roi_dir_name="cell_rois_shrunk",
+                roi_dir_name=roi_dir_name,
                 verbose=verbose
             )
             results['roi_crops_whiteBg'] = result_whitebg
 
-            # 5c: PNG with black background - use original Actin + shrunk ROIs
+            # 5c: PNG with black background - use original Actin + ROIs
             result_blackbg = extract_roi_crops.extract_roi_crops(
                 sample_folder=sample_folder,
                 image_number=image_number,
@@ -244,7 +300,7 @@ def run_pipeline(sample_folder, image_number, base_path,
                 output_dir_name="roi_crops_blackBg",
                 use_transparency=True,
                 background_color=0,
-                roi_dir_name="cell_rois_shrunk",
+                roi_dir_name=roi_dir_name,
                 verbose=verbose
             )
             results['roi_crops_blackBg'] = result_blackbg
@@ -296,6 +352,7 @@ def run_pipeline(sample_folder, image_number, base_path,
             sample_folder=sample_folder,
             image_number=image_number,
             base_path=base_path,
+            roi_dir_name=roi_dir_name,
             ij=ij,
             verbose=verbose
         )
@@ -316,6 +373,7 @@ def run_pipeline(sample_folder, image_number, base_path,
             image_number=image_number,
             base_path=base_path,
             channel_config=channel_config,
+            roi_dir_name=roi_dir_name,
             ij=ij,
             verbose=False
         )
@@ -355,6 +413,8 @@ def run_pipeline(sample_folder, image_number, base_path,
             image_number=image_number,
             base_path=base_path,
             channel_config=channel_config,
+            include_channels=combine_channels,
+            null_channels=null_channels,
             verbose=verbose
         )
         results['combine'] = result

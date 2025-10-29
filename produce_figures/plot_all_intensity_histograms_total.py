@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Plot Intensity Histograms for All Samples Combined
-Creates histograms showing median intensity distribution for each channel across all samples
+Plot Total Intensity Histograms for All Samples Combined
+Creates histograms showing total intensity distribution for each channel across all samples
 
 Usage:
-    python plot_all_intensity_histograms.py
+    python plot_all_intensity_histograms_total.py
 """
 
 import pandas as pd
@@ -36,12 +36,12 @@ OUTPUT_FILE = "all_samples_total_intensity_histograms.png"
 
 def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, verbose=True):
     """
-    Plot histograms of median intensity distributions for all channels across all samples.
+    Plot histograms of total intensity distributions for all channels across all samples.
 
     Args:
         base_path: Base directory path containing the combined CSV
         csv_file: Name of combined CSV file (default: all_samples_combined.csv)
-        output_file: Output filename (default: all_samples_intensity_histograms.png)
+        output_file: Output filename (default: all_samples_total_intensity_histograms.png)
         verbose: Print progress messages
 
     Returns:
@@ -53,11 +53,11 @@ def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, ve
     if csv_file is None:
         csv_file = "all_samples_combined.csv"
     if output_file is None:
-        output_file = "all_samples_intensity_histograms.png"
+        output_file = "all_samples_total_intensity_histograms.png"
 
     if verbose:
         print(f"\n{'='*40}")
-        print("PLOT INTENSITY HISTOGRAMS (ALL SAMPLES)")
+        print("PLOT TOTAL INTENSITY HISTOGRAMS (ALL SAMPLES)")
         print(f"{'='*40}")
 
     # Build paths
@@ -88,7 +88,7 @@ def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, ve
         print(f"  Total cells: {len(df)}")
         print(f"  Samples: {df['sample'].unique().tolist()}")
 
-    # Define channels to plot (mean intensities)
+    # Define channels to plot (mean intensity columns - we'll multiply by area)
     channels = [
         ('actin_mean', 'Actin-FITC', 'green'),
         ('cd4_mean', 'CD4-PerCP', 'blue'),
@@ -96,6 +96,14 @@ def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, ve
         # ('cd19car_mean', 'CD19CAR-AF647', 'red'),
         ('ccr7_mean', 'CCR7-PE', 'orange')
     ]
+
+    # Check if area column exists
+    if 'area' not in df.columns:
+        return {
+            'success': False,
+            'error': 'Area column not found in CSV - needed to calculate total intensity',
+            'figure_path': None
+        }
 
     # Create figure with subplots (3x2 grid for 5 channels)
     fig, axes = plt.subplots(2, 3, figsize=(18, 10))
@@ -115,8 +123,8 @@ def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, ve
             ax.set_yticks([])
             continue
 
-        # Get data
-        data = df[col_name].dropna()
+        # Calculate total intensity = mean intensity * area
+        data = (df[col_name] * df['area']).dropna()
         n_cells = len(data)
 
         if n_cells == 0:
@@ -132,8 +140,8 @@ def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, ve
         ax.hist(data, bins=100, color=color, alpha=0.7, edgecolor='black', linewidth=0.5)
 
         # Styling
-        ax.set_title(f'{channel_name} Intensity Distribution', fontsize=14, fontweight='bold', pad=10)
-        ax.set_xlabel('Mean Intensity', fontsize=11)
+        ax.set_title(f'{channel_name} Total Intensity Distribution', fontsize=14, fontweight='bold', pad=10)
+        ax.set_xlabel('Total Intensity (Raw Integrated Density)', fontsize=11)
         ax.set_ylabel('Frequency', fontsize=11)
         ax.grid(axis='y', alpha=0.3, linestyle='--')
         ax.spines['top'].set_visible(False)
@@ -157,7 +165,7 @@ def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, ve
     # Hide the extra subplot (we have 5 channels in a 2x3 grid)
     axes[5].set_visible(False)
 
-    plt.suptitle(f'All Samples Combined - Intensity Distributions (n={len(df)} cells)',
+    plt.suptitle(f'All Samples Combined - Total Intensity Distributions (n={len(df)} cells)',
                  fontsize=16, fontweight='bold', y=0.995)
     plt.tight_layout()
 

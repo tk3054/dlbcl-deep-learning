@@ -30,7 +30,7 @@ except ImportError:
 # CONFIGURATION
 # ============================================================================
 
-SAMPLES_TO_PROCESS = [1, 2, 3, 4, 5, 6]  # List of sample numbers, or None for all samples
+SAMPLES_TO_PROCESS = [1, 2]  # List of sample numbers, or None for all samples
 OUTPUT_FILE = "all_samples_combined.csv"
 
 # ============================================================================
