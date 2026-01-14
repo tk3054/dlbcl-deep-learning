@@ -12,13 +12,16 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from csvOps.combine_channel import combine_measurements
+from utils.channel_aliases import canonicalize_channel_config, canonicalize_channel_list
 
-# Import BASE_PATH from main.py
+# Import BASE_PATH and channel configuration from main.py (single source of truth)
 try:
-    from main import BASE_PATH
-except ImportError:
-    # Fallback if main.py is not available
-    BASE_PATH = "/Users/taeeonkong/Desktop/2025 Fall Images/09-26-2025 DLBCL"
+    from main import BASE_PATH, CHANNEL_CONFIG
+except ImportError as exc:
+    raise ImportError("combine_image.py must be run where main.py is importable so channel configuration is shared.") from exc
+
+CHANNEL_CONFIG = canonicalize_channel_config(CHANNEL_CONFIG)
+DEFAULT_CHANNEL_LIST = canonicalize_channel_list(CHANNEL_CONFIG.keys())
 
 # ============================================================================
 # CONFIGURATION - EDIT THESE
@@ -66,6 +69,8 @@ def main():
     print("="*80)
     print(f"Base path: {BASE_PATH}")
     print(f"Processing samples: {', '.join(sample_folders)}")
+    if DEFAULT_CHANNEL_LIST:
+        print(f"Channel set: {', '.join(DEFAULT_CHANNEL_LIST)}")
     print("="*80 + "\n")
 
     # Process each sample
@@ -100,6 +105,8 @@ def main():
                     sample_folder=sample_folder,
                     image_number=image_number,
                     base_path=BASE_PATH,
+                    include_channels=DEFAULT_CHANNEL_LIST,
+                    channel_config=CHANNEL_CONFIG,
                     verbose=True
                 )
 

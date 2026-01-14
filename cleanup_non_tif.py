@@ -61,17 +61,22 @@ def cleanup_non_tif_files(base_path, verbose=True):
             # Then, delete non-TIF files in the image folder itself
             for item in image_folder.iterdir():
                 if item.is_file():
-                    # Keep only .tif and .TIF files
-                    if item.suffix.lower() == '.tif':
+                    keep_tif = (
+                        item.suffix.lower() == '.tif'
+                        and not item.name.startswith('processed_')
+                        and item.name != 'original_image.tif'
+                    )
+
+                    if keep_tif:
                         kept_tifs += 1
                         if verbose:
                             print(f"    ✓ Keeping: {item.name}")
-                    else:
-                        # Delete non-TIF files
-                        item.unlink()
-                        deleted_files += 1
-                        if verbose:
-                            print(f"    ✗ Deleted: {item.name}")
+                        continue
+
+                    item.unlink()
+                    deleted_files += 1
+                    if verbose:
+                        print(f"    ✗ Deleted: {item.name}")
 
         # Delete sample-level files (like combined_measurements.csv)
         for item in sample_folder.iterdir():

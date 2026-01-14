@@ -8,14 +8,30 @@ columns (area, x, y, etc.) are retained from the first included channel only.
 
 CLI usage examples:
     python combine_channel.py sample2 7 --null-channels ccr7
-    python combine_channel.py sample1 4 --include-channels actin cd4 cd45ra_sparkviolet
+    python combine_channel.py sample1 4 --include-channels actin cd4 cd45ra_PacBlue
 """
 
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from utils.channel_aliases import canonicalize_channel_config, canonicalize_channel_list
+
+# Pull channel configuration from main.py so that it is defined in one place.
+# If main.py is not importable (e.g., running this file in isolation), callers
+# must provide channel_config explicitly to combine_measurements.
+try:
+    from main import CHANNEL_CONFIG as MAIN_CHANNEL_CONFIG
+except ImportError:
+    MAIN_CHANNEL_CONFIG = None
+
+CHANNEL_CONFIG = canonicalize_channel_config(MAIN_CHANNEL_CONFIG) if MAIN_CHANNEL_CONFIG else None
+DEFAULT_CHANNEL_ORDER = canonicalize_channel_list(CHANNEL_CONFIG.keys()) if CHANNEL_CONFIG else []
 
 
 # ============================================================================
@@ -69,18 +85,41 @@ def combine_measurements(sample_folder, image_number, base_path, channel_config=
 
     # Define channel patterns to search for (flexible naming, including car- prefix)
     channel_patterns = {
-        'actin': ['actin-fitc-measurements.csv', 'car-actin-fitc-measurements.csv', 'Actin-FITC-measurements.csv', 'actin_measurements.csv'],
-        'cd4': ['cd4-percp-measurements.csv', 'car-cd4-percp-measurements.csv', 'CD4-PerCP-measurements.csv', 'cd4_measurements.csv'],
-        'cd45ra_af647': ['cd45ra-af647-measurements.csv', 'car-cd45ra-af647-measurements.csv', 'CD45RA-AF647-measurements.csv', 'cd45ra_measurements.csv'],
-        'cd45ra_sparkviolet': [
+        'actin': [
+            'actin-fitc-measurements.csv',
+            'car-actin-fitc-measurements.csv',
+            'Actin-FITC-measurements.csv',
+            'actin_measurements.csv',
+        ],
+        'cd4': [
+            'cd4-percp-measurements.csv',
+            'car-cd4-percp-measurements.csv',
+            'CD4-PerCP-measurements.csv',
+            'cd4_measurements.csv',
+        ],
+        'cd45ra_PacBlue': [
+            'cd45ra-pacblue-measurements.csv',
+            'car-cd45ra-pacblue-measurements.csv',
+            'CD45RA-PacBlue-measurements.csv',
             'cd45ra-sparkviolet-measurements.csv',
             'car-cd45ra-sparkviolet-measurements.csv',
             'CD45RA-SparkViolet-measurements.csv',
-            'CD45RA-PacBlue-measurements.csv',
         ],
-        'cd19car': ['cd19car-af647-measurements.csv', 'car-cd19car-af647-measurements.csv', 'CD19CAR-AF647-measurements.csv'],
-        'ccr7': ['ccr7-pe-measurements.csv', 'car-ccr7-pe-measurements.csv', 'CCR7-PE-measurements.csv', 'ccr7_measurements.csv']
+        'cd19car': [
+            'cd19car-af647-measurements.csv',
+            'car-cd19car-af647-measurements.csv',
+            'CD19CAR-AF647-measurements.csv',
+        ],
+        'ccr7': [
+            'ccr7-pe-measurements.csv',
+            'car-ccr7-pe-measurements.csv',
+            'CCR7-PE-measurements.csv',
+            'ccr7_measurements.csv',
+        ],
     }
+
+    include_channels = canonicalize_channel_list(include_channels, verbose=verbose)
+    null_channels = canonicalize_channel_list(null_channels, verbose=verbose)
 
     # Determine which channel keys to process (preserve requested order)
     if include_channels:
@@ -90,7 +129,8 @@ def combine_measurements(sample_folder, image_number, base_path, channel_config=
             print(f"⚠️  Unknown channel keys requested: {missing}")
         channel_keys = [ch for ch in requested_channels if ch in channel_patterns]
     else:
-        channel_keys = list(channel_patterns.keys())
+        default_keys = [ch for ch in DEFAULT_CHANNEL_ORDER if ch in channel_patterns]
+        channel_keys = default_keys if default_keys else list(channel_patterns.keys())
 
     # Find CSVs that exist (try all patterns)
     available_channels = {}

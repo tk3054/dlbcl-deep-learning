@@ -18,19 +18,25 @@ from pathlib import Path
 import sys
 import re
 
-# Import BASE_PATH from main.py
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from csvOps.combine_channel import combine_measurements
+from utils.channel_aliases import canonicalize_channel_config, canonicalize_channel_list
+
+# Import BASE_PATH / channel config / samples from main.py (single source of truth)
 try:
-    from main import BASE_PATH
-except ImportError:
-    # Fallback if main.py is not available
-    BASE_PATH = "/Users/taeeonkong/Desktop/2025 Fall Images/09-26-2025 DLBCL"
+    from main import BASE_PATH, CHANNEL_CONFIG, SAMPLES_TO_PROCESS
+except ImportError as exc:
+    raise ImportError("combine_all.py must be run where main.py is importable so channel configuration is shared.") from exc
+
+CHANNEL_CONFIG = canonicalize_channel_config(CHANNEL_CONFIG)
+CHANNELS_LIST = canonicalize_channel_list(CHANNEL_CONFIG.keys())
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-SAMPLES_TO_PROCESS = [1, 2]  # List of sample numbers, or None for all samples
+# SAMPLES_TO_PROCESS is now imported from main.py above
 OUTPUT_FILE = "all_samples_combined.csv"
 
 # ============================================================================
@@ -125,25 +131,37 @@ def combine_images_per_sample(sample_folders, verbose=True):
         for image_folder in image_folders:
             csv_path = image_folder / "combined_measurements.csv"
 
-            if csv_path.exists():
-                df = pd.read_csv(csv_path)
-
-                # Remove unique_id column if it exists (we'll regenerate it)
-                if 'unique_id' in df.columns:
-                    df = df.drop(columns=['unique_id'])
-
-                # Ensure sample and image columns exist
-                if 'sample' not in df.columns:
-                    df.insert(0, 'sample', sample_folder.name)
-                if 'image' not in df.columns:
-                    df.insert(1, 'image', image_folder.name)
-
-                all_image_data.append(df)
+            if not csv_path.exists():
                 if verbose:
-                    print(f"  ✓ {image_folder.name}: {len(df)} cells")
-            else:
-                if verbose:
-                    print(f"  ⚠️  {image_folder.name}: No combined_measurements.csv found")
+                    print(f"  • {image_folder.name}: generating combined_measurements.csv for configured channels...")
+                combine_result = combine_measurements(
+                    sample_folder=sample_folder.name,
+                    image_number=image_folder.name,
+                    base_path=BASE_PATH,
+                    include_channels=CHANNELS_LIST,
+                    channel_config=CHANNEL_CONFIG,
+                    verbose=verbose
+                )
+                if not combine_result['success'] or combine_result.get('skipped'):
+                    if verbose:
+                        print(f"    ⚠️  Unable to combine channels for {image_folder.name}: {combine_result.get('error', 'No measurement CSVs found')}")
+                    continue
+
+            df = pd.read_csv(csv_path)
+
+            # Remove unique_id column if it exists (we'll regenerate it)
+            if 'unique_id' in df.columns:
+                df = df.drop(columns=['unique_id'])
+
+            # Ensure sample and image columns exist
+            if 'sample' not in df.columns:
+                df.insert(0, 'sample', sample_folder.name)
+            if 'image' not in df.columns:
+                df.insert(1, 'image', image_folder.name)
+
+            all_image_data.append(df)
+            if verbose:
+                print(f"  ✓ {image_folder.name}: {len(df)} cells")
 
         if not all_image_data:
             if verbose:
@@ -274,6 +292,8 @@ def main():
     print("="*80)
     print(f"Base path: {BASE_PATH}")
     print(f"Processing samples: {SAMPLES_TO_PROCESS if SAMPLES_TO_PROCESS else 'ALL'}")
+    if CHANNELS_LIST:
+        print(f"Channel set: {', '.join(CHANNELS_LIST)}")
     print("="*80)
 
     # Get sample folders

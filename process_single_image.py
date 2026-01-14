@@ -9,6 +9,9 @@ Usage:
 """
 
 import imagej
+import os
+import sys
+from contextlib import contextmanager
 from pathlib import Path
 
 # Import pipeline modules
@@ -18,11 +21,13 @@ import segmentation.shrink_roi as shrink_roi
 import process_image.extract_roi_crops as extract_roi_crops
 import process_image.visualize_rois_on_jpg as visualize_rois_on_jpg
 import csvOps.combine_channel as combine_channel
+from utils.channel_aliases import canonicalize_channel_config, canonicalize_channel_list
 
 
 # Optional aliases for channel filenames when multiple naming conventions exist
 CHANNEL_FILENAME_ALIASES = {
     'cd45ra_sparkviolet': ['CD45RA-PacBlue.tif'],
+    'cd45ra_PacBlue': ['CD45RA-SparkViolet.tif'],
 }
 
 
@@ -65,27 +70,33 @@ def resolve_channel_filenames(channel_config, base_path, sample_folder, image_nu
 # CONFIGURATION - EDIT THESE
 # ============================================================================
 
-SAMPLE_FOLDER = "sample1"
+SAMPLE_FOLDER = "sample2"
 IMAGE_NUMBER = "1"
-BASE_PATH = "/Users/taeeonkong/Desktop/2025 Fall Images/09-26-2025 DLBCL"
+BASE_PATH = "'/Users/taeeonkong/Desktop/113614(FITC-500ms)'"
 
 SEGMENTATION_METHOD = 'cellpose'  # Options: 'cellpose' or 'watershed'
 
 PARAMS = {
     # Segmentation - Cellpose (deep learning)
     'cellpose_model': 'cyto2',
-    'cellpose_diameter': 50,      # Increased for larger cells
+    'cellpose_diameter': 400,      # Increased for larger cells
     'cellpose_flow_threshold': 0.6,  # Higher = tighter fit (was 0.4)
-    'cellpose_cellprob_threshold': 0.0,  # Higher = tighter fit, less background (was -2.0)
+    'cellpose_cellprob_threshold': -2.0,
     'cellpose_use_gpu': True,
-    'min_size': 500,
-    'max_size': 20000,            # Increased for larger cells
+    'min_size': 200,
+    'max_size': 20000,
 
     # Filtering
     'consecutive_threshold': 20,
 
     # ROI Visualization
     'shrink_pixels': 8,           # Number of pixels to shrink ROIs for visualization
+
+    # Soft Edges - Generate multiple versions for comparison
+    # DISABLED: Only using hard cutoff (no soft edges) for now
+    'soft_edge_methods': [
+        {'name': 'hard', 'use_soft_edges': False},
+    ]
 }
 
 
@@ -132,18 +143,17 @@ def run_pipeline(sample_folder, image_number, base_path,
     if params is None:
         params = PARAMS
 
-    # Use default channel config if not provided
+    # Require caller-provided channel config so it stays defined in main.py
     if channel_config is None:
-        channel_config = {
-            'actin': 'Actin-FITC.tif',
-            'cd4': 'CD4-PerCP.tif',
-            'cd45ra_af647': 'CD45RA-AF647.tif',
-            'cd45ra_sparkviolet': 'CD45RA-SparkViolet.tif',
-            'cd19car': 'CD19CAR-AF647.tif',
-            'ccr7': 'CCR7-PE.tif',
-        }
-    else:
-        channel_config = channel_config.copy()
+        return {'success': False, 'error': "channel_config must be provided by caller", 'results': results}
+    channel_config = channel_config.copy()
+
+    # Normalize any aliased channel keys so the rest of the pipeline receives
+    # the canonical names it expects (e.g., map "cd45ra_PacBlue" to
+    # "cd45ra_sparkviolet").
+    channel_config = canonicalize_channel_config(channel_config, verbose=verbose)
+    combine_channels = canonicalize_channel_list(combine_channels, verbose=verbose)
+    null_channels = canonicalize_channel_list(null_channels, verbose=verbose)
 
     base_dir_path = Path(base_path) / sample_folder / image_number
 
@@ -164,7 +174,8 @@ def run_pipeline(sample_folder, image_number, base_path,
         if ij is None:
             if verbose:
                 print("STEP 1: Initializing ImageJ...")
-            ij = imagej.init('sc.fiji:fiji')
+            with _suppress_output():
+                ij = imagej.init('sc.fiji:fiji')
             if verbose:
                 print(f"✓ ImageJ version: {ij.getVersion()}\n")
         results['imagej'] = ij
@@ -255,55 +266,91 @@ def run_pipeline(sample_folder, image_number, base_path,
             return {'success': False, 'error': f"JPG creation failed: {result['error']}", 'results': results}
 
         # ====================================================================
-        # STEP 6: Extract ROI Crops (3 versions)
+        # STEP 6: Extract ROI Crops (with multiple soft edge methods)
         # ====================================================================
-        # if verbose:
-        #     print("\nSTEP 5: Extract ROI Crops")
-        #     print("-" * 80)
+        if verbose:
+            print("\nSTEP 6: Extract ROI Crops (Multiple Methods)")
+            print("-" * 80)
 
-        # 5a: TIF version (full dynamic range) - use original file + ROIs
-        result_tif = extract_roi_crops.extract_roi_crops(
-            sample_folder=sample_folder,
-            image_number=image_number,
-            base_path=base_path,
-            source_image=channel_config.get('actin', 'Actin-FITC.tif'),
-            output_dir_name="roi_crops_tif",
-            use_transparency=False,
-            roi_dir_name=roi_dir_name,
-            verbose=verbose
-        )
-        results['roi_crops_tif'] = result_tif
+        # Get soft edge methods from params
+        soft_edge_methods = params.get('soft_edge_methods', [
+            {'name': 'hard', 'use_soft_edges': False}
+        ])
 
-        # 5b: PNG with white background - use original Actin + ROIs
-        # Use original Actin file for PNG crops
-        original_actin = channel_config.get('actin', 'Actin-FITC.tif')
-        if (base_dir_path / original_actin).exists():
-            result_whitebg = extract_roi_crops.extract_roi_crops(
+        # Extract crops using each softening method
+        for method_config in soft_edge_methods:
+            method_name = method_config.get('name', 'unknown')
+            use_soft = method_config.get('use_soft_edges', False)
+
+            if verbose:
+                print(f"\n  Processing with method: {method_name}")
+
+            # Extract parameters for this method
+            soft_method = method_config.get('method', 'gaussian')
+            sigma = method_config.get('sigma', 2.0)
+            k = method_config.get('k', 2.0)
+            d0 = method_config.get('d0', 0.0)
+
+            # TIF version (full dynamic range)
+            result_tif = extract_roi_crops.extract_roi_crops(
                 sample_folder=sample_folder,
                 image_number=image_number,
                 base_path=base_path,
-                source_image=original_actin,
-                output_dir_name="roi_crops_whiteBg",
-                use_transparency=True,
-                background_color=255,
+                source_image=channel_config.get('actin', 'Actin-FITC.tif'),
+                output_dir_name=f"roi_crops_tif_{method_name}",
+                use_transparency=False,
                 roi_dir_name=roi_dir_name,
-                verbose=verbose
+                use_soft_edges=use_soft,
+                soft_edge_method=soft_method,
+                gaussian_sigma=sigma,
+                sigmoid_k=k,
+                sigmoid_d0=d0,
+                verbose=False
             )
-            results['roi_crops_whiteBg'] = result_whitebg
+            results[f'roi_crops_tif_{method_name}'] = result_tif
 
-            # 5c: PNG with black background - use original Actin + ROIs
-            result_blackbg = extract_roi_crops.extract_roi_crops(
-                sample_folder=sample_folder,
-                image_number=image_number,
-                base_path=base_path,
-                source_image=original_actin,
-                output_dir_name="roi_crops_blackBg",
-                use_transparency=True,
-                background_color=0,
-                roi_dir_name=roi_dir_name,
-                verbose=verbose
-            )
-            results['roi_crops_blackBg'] = result_blackbg
+            # PNG with white background
+            original_actin = channel_config.get('actin', 'Actin-FITC.tif')
+            if (base_dir_path / original_actin).exists():
+                result_whitebg = extract_roi_crops.extract_roi_crops(
+                    sample_folder=sample_folder,
+                    image_number=image_number,
+                    base_path=base_path,
+                    source_image=original_actin,
+                    output_dir_name=f"roi_crops_whiteBg_{method_name}",
+                    use_transparency=True,
+                    background_color=255,
+                    roi_dir_name=roi_dir_name,
+                    use_soft_edges=use_soft,
+                    soft_edge_method=soft_method,
+                    gaussian_sigma=sigma,
+                    sigmoid_k=k,
+                    sigmoid_d0=d0,
+                    verbose=False
+                )
+                results[f'roi_crops_whiteBg_{method_name}'] = result_whitebg
+
+                # PNG with black background
+                result_blackbg = extract_roi_crops.extract_roi_crops(
+                    sample_folder=sample_folder,
+                    image_number=image_number,
+                    base_path=base_path,
+                    source_image=original_actin,
+                    output_dir_name=f"roi_crops_blackBg_{method_name}",
+                    use_transparency=True,
+                    background_color=0,
+                    roi_dir_name=roi_dir_name,
+                    use_soft_edges=use_soft,
+                    soft_edge_method=soft_method,
+                    gaussian_sigma=sigma,
+                    sigmoid_k=k,
+                    sigmoid_d0=d0,
+                    verbose=False
+                )
+                results[f'roi_crops_blackBg_{method_name}'] = result_blackbg
+
+        if verbose:
+            print(f"\n  ✓ Generated crops for {len(soft_edge_methods)} methods")
 
         # ====================================================================
         # STEP 7: Visualize ROIs on JPG Images
@@ -485,3 +532,16 @@ def main():
 
 if __name__ == "__main__":
     main()
+# Suppress ImageJ stdout/stderr during init when needed.
+@contextmanager
+def _suppress_output():
+    with open(os.devnull, 'w') as devnull:
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = devnull
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr

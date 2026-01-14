@@ -158,10 +158,19 @@ def segment_cells_with_cellpose(image, mask=None, model_type='cyto2', diameter=N
         else:
             diams = diameter if diameter is not None else 30  # Default
 
+    # Extract cell probability map (flows[2])
+    cell_prob_map = None
+    if isinstance(flows, list) and len(flows) > 2:
+        cell_prob_map = flows[2]
+    elif isinstance(flows, tuple) and len(flows) > 2:
+        cell_prob_map = flows[2]
+
     if verbose:
         detected_diameter = diams if diameter is None else diameter
         print(f"  Detected diameter: {detected_diameter:.1f} pixels")
         print(f"  Found {len(np.unique(masks)) - 1} initial masks")
+        if cell_prob_map is not None:
+            print(f"  Extracted probability map: {cell_prob_map.shape}")
 
     # If mask is provided, filter to only cells within mask region
     if mask is not None:
@@ -198,7 +207,7 @@ def segment_cells_with_cellpose(image, mask=None, model_type='cyto2', diameter=N
     if verbose:
         print(f"  After size filtering ({min_size}-{max_size} pixels): {len(valid_regions)} cells")
 
-    return valid_regions, valid_bboxes, labeled_mask
+    return valid_regions, valid_bboxes, labeled_mask, cell_prob_map
 
 
 # ============================================================================
@@ -338,7 +347,7 @@ def segment_cells_cellpose(sample_folder, image_number, base_path,
 
     # Perform Cellpose segmentation
     try:
-        regions, bboxes, labeled_mask = segment_cells_with_cellpose(
+        regions, bboxes, labeled_mask, cell_prob_map = segment_cells_with_cellpose(
             image, mask=mask,
             model_type=model_type,
             diameter=diameter,
@@ -355,6 +364,17 @@ def segment_cells_cellpose(sample_folder, image_number, base_path,
             'error': f"Cellpose segmentation failed: {str(e)}",
             'num_cells': 0
         }
+
+    # Save the probability map if available
+    if cell_prob_map is not None:
+        prob_map_path = base_path_obj / 'cellpose_prob_map.tif'
+        try:
+            io.imsave(prob_map_path, cell_prob_map, check_contrast=False)
+            if verbose:
+                print(f"  ✓ Saved probability map: {prob_map_path.name}")
+        except Exception as e:
+            if verbose:
+                print(f"  ⚠️  Failed to save probability map: {e}")
 
     # Export ROIs
     roi_dir = export_cell_rois(image, labeled_mask, regions, base_dir)
@@ -379,7 +399,8 @@ def segment_cells_cellpose(sample_folder, image_number, base_path,
         'num_cells': len(regions),
         'roi_dir': roi_dir,
         'raw_crops_dir': raw_crops_dir,
-        'base_dir': base_dir
+        'base_dir': base_dir,
+        'cell_prob_map': cell_prob_map
     }
 
 

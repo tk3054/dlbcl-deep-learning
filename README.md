@@ -89,9 +89,9 @@ BASE_PATH/
 
 ## 🔧 Configuration Options
 
-### Channel Names
+### Channel Names (all channels are combined)
 
-**This is the most important configuration!** If your channel files have different names, edit `CHANNEL_CONFIG` in `main.py`:
+**This is the most important configuration!** If your channel files have different names, edit `CHANNEL_CONFIG` in `main.py`. All channels defined here are combined automatically—no separate subset list to manage:
 
 ```python
 CHANNEL_CONFIG = {
@@ -100,6 +100,8 @@ CHANNEL_CONFIG = {
     # ... etc
 }
 ```
+
+All downstream scripts import these values from `main.py`, so you only need to update them in one place.
 
 ### Cellpose Parameters
 
@@ -327,9 +329,9 @@ if result['success']:
 
 To add or modify channels:
 
-1. Add the channel to `CHANNEL_CONFIG` in `main.py`
+1. Add the channel to `CHANNEL_CONFIG` in `main.py` (it will be combined automatically)
 2. Edit `imageJ_scripts/extract_channels.ijm` to add measurement calls
-3. Update `csvOps/combine_channel.py` if needed
+3. (Optional) Update any ImageJ preprocessing or measurement logic if the new channel needs special handling
 
 ### Modify Preprocessing
 

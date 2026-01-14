@@ -5,7 +5,25 @@ Provides parameterized functions for running ImageJ macros via PyImageJ
 """
 
 import imagej
+import os
+import sys
+from contextlib import contextmanager
 from pathlib import Path
+
+
+@contextmanager
+def _suppress_output():
+    """Suppress ImageJ stdout/stderr noise during init and macro execution."""
+    with open(os.devnull, 'w') as devnull:
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = devnull
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
 
 def preprocess_actin(sample_folder, image_number, base_path, ij=None, create_mask=True, verbose=True):
@@ -31,7 +49,8 @@ def preprocess_actin(sample_folder, image_number, base_path, ij=None, create_mas
     if ij is None:
         if verbose:
             print("Initializing ImageJ...")
-        ij = imagej.init('sc.fiji:fiji')
+        with _suppress_output():
+            ij = imagej.init('sc.fiji:fiji')
 
     # Read macro
     macro_path = Path(__file__).parent / "headless_process_actin_fitc.ijm"
@@ -58,7 +77,8 @@ def preprocess_actin(sample_folder, image_number, base_path, ij=None, create_mas
         print(f"Preprocessing with ImageJ{mask_msg}...")
 
     try:
-        ij.py.run_macro(macro_code_updated)
+        with _suppress_output():
+            ij.py.run_macro(macro_code_updated)
 
         # Check if files were created
         base_dir = f"{base_path}/{sample_folder}/{image_number}"
@@ -116,7 +136,8 @@ def load_rois(sample_folder, image_number, base_path, roi_dir_name='cell_rois', 
     if ij is None:
         if verbose:
             print("Initializing ImageJ...")
-        ij = imagej.init('sc.fiji:fiji')
+        with _suppress_output():
+            ij = imagej.init('sc.fiji:fiji')
 
     # Read macro
     macro_path = Path(__file__).parent / "load_ROIs.ijm"
@@ -147,7 +168,8 @@ def load_rois(sample_folder, image_number, base_path, roi_dir_name='cell_rois', 
         print(f"Loading ROIs in ImageJ ({num_rois} cells)...")
 
     try:
-        ij.py.run_macro(macro_code_updated)
+        with _suppress_output():
+            ij.py.run_macro(macro_code_updated)
 
         if verbose:
             print(f"  ✓ Loaded {num_rois} ROIs")
@@ -187,7 +209,8 @@ def preprocess_channels(sample_folder, image_number, base_path, channel_config=N
     if ij is None:
         if verbose:
             print("Initializing ImageJ...")
-        ij = imagej.init('sc.fiji:fiji')
+        with _suppress_output():
+            ij = imagej.init('sc.fiji:fiji')
 
     # Read macro
     macro_path = Path(__file__).parent / "preprocess_channels.ijm"
@@ -210,7 +233,8 @@ def preprocess_channels(sample_folder, image_number, base_path, channel_config=N
         print(f"Preprocessing channel images...")
 
     try:
-        ij.py.run_macro(macro_code_updated)
+        with _suppress_output():
+            ij.py.run_macro(macro_code_updated)
 
         # Check for created processed files
         base_dir = Path(f"{base_path}/{sample_folder}/{image_number}")
@@ -254,7 +278,8 @@ def make_duplicate_jpg(sample_folder, image_number, base_path, channel_config=No
     if ij is None:
         if verbose:
             print("Initializing ImageJ...")
-        ij = imagej.init('sc.fiji:fiji')
+        with _suppress_output():
+            ij = imagej.init('sc.fiji:fiji')
 
     # Read macro
     macro_path = Path(__file__).parent / "make_duplicate_jpg.ijm"
@@ -277,7 +302,8 @@ def make_duplicate_jpg(sample_folder, image_number, base_path, channel_config=No
         print(f"Creating JPG duplicates for all channels...")
 
     try:
-        ij.py.run_macro(macro_code_updated)
+        with _suppress_output():
+            ij.py.run_macro(macro_code_updated)
 
         # Check for created JPG files
         base_dir = Path(f"{base_path}/{sample_folder}/{image_number}")
@@ -322,8 +348,8 @@ def extract_channel_measurements(sample_folder, image_number, base_path, channel
         channel_config = {
             'actin': 'Actin-FITC.tif',
             'cd4': 'CD4-PerCP.tif',
-            'cd45ra_af647': 'CD45RA-AF647.tif',
             'cd45ra_sparkviolet': 'CD45RA-SparkViolet.tif',
+            'cd45ra_PacBlue': 'CD45RA-PacBlue.tif',
             'cd19car': 'CD19CAR-AF647.tif',
             'ccr7': 'CCR7-PE.tif',
         }
@@ -332,7 +358,8 @@ def extract_channel_measurements(sample_folder, image_number, base_path, channel
     if ij is None:
         if verbose:
             print("Initializing ImageJ...")
-        ij = imagej.init('sc.fiji:fiji')
+        with _suppress_output():
+            ij = imagej.init('sc.fiji:fiji')
 
     # Read macro
     macro_path = Path(__file__).parent / "extract_channels.ijm"
@@ -356,11 +383,8 @@ def extract_channel_measurements(sample_folder, image_number, base_path, channel
         'cd4File = "CD4_FILE_PLACEHOLDER";',
         f'cd4File = "{channel_config.get("cd4", "CD4-PerCP.tif")}";'
     ).replace(
-        'cd45raAF647File = "CD45RA_AF647_FILE_PLACEHOLDER";',
-        f'cd45raAF647File = "{channel_config.get("cd45ra_af647", "CD45RA-AF647.tif")}";'
-    ).replace(
         'cd45raSparkVioletFile = "CD45RA_SPARKVIOLET_FILE_PLACEHOLDER";',
-        f'cd45raSparkVioletFile = "{channel_config.get("cd45ra_sparkviolet", "CD45RA-SparkViolet.tif")}";'
+        f'cd45raSparkVioletFile = "{channel_config.get("cd45ra_sparkviolet", channel_config.get("cd45ra_PacBlue", "CD45RA-SparkViolet.tif"))}";'
     ).replace(
         'cd19carFile = "CD19CAR_FILE_PLACEHOLDER";',
         f'cd19carFile = "{channel_config.get("cd19car", "CD19CAR-AF647.tif")}";'
@@ -389,22 +413,8 @@ def extract_channel_measurements(sample_folder, image_number, base_path, channel
         print(f"Extracting channel measurements ({num_rois} cells × {len(channel_files)} channels)...")
 
     try:
-        # Suppress ImageJ stdout/stderr during macro execution
-        import sys
-        import os
-
-        # Completely suppress output by redirecting to devnull
-        with open(os.devnull, 'w') as devnull:
-            old_stdout = sys.stdout
-            old_stderr = sys.stderr
-            sys.stdout = devnull
-            sys.stderr = devnull
-
-            try:
-                ij.py.run_macro(macro_code_updated)
-            finally:
-                sys.stdout = old_stdout
-                sys.stderr = old_stderr
+        with _suppress_output():
+            ij.py.run_macro(macro_code_updated)
 
         # Check for output files
         measurement_files = []

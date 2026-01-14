@@ -9,9 +9,10 @@ import numpy as np
 from PIL import Image
 from pathlib import Path
 import cv2
+from process_image.soften_edges import apply_soft_mask
 
 
-def extract_roi_crops(sample_folder, image_number, base_path, source_image="Actin-FITC.tif", output_dir_name="roi_crops", use_transparency=False, background_color=0, roi_dir_name=None, pad_to_size=255, save_tif_blackbg=True, verbose=True):
+def extract_roi_crops(sample_folder, image_number, base_path, source_image="Actin-FITC.tif", output_dir_name="roi_crops", use_transparency=False, background_color=0, roi_dir_name=None, pad_to_size=255, save_tif_blackbg=True, use_soft_edges=False, soft_edge_method='gaussian', gaussian_sigma=2.0, sigmoid_k=2.0, sigmoid_d0=0.0, verbose=True):
     """
     Extract cell crops from original image using ROI masks.
 
@@ -26,6 +27,11 @@ def extract_roi_crops(sample_folder, image_number, base_path, source_image="Acti
         roi_dir_name: ROI directory name (default: auto-detect - prefers Cellpose)
         pad_to_size: Pad crops to this size (default: 255, set to None to disable padding)
         save_tif_blackbg: If True, also save TIF versions with black background (default: True)
+        use_soft_edges: If True, apply soft edge masking for smooth transitions (default: False)
+        soft_edge_method: Method for soft edges: 'gaussian' or 'sigmoid' (default: 'gaussian')
+        gaussian_sigma: Gaussian blur strength (default: 2.0, larger = softer)
+        sigmoid_k: Sigmoid steepness parameter (default: 2.0, higher = sharper)
+        sigmoid_d0: Sigmoid distance threshold (default: 0.0)
         verbose: Print progress messages
 
     Returns:
@@ -108,6 +114,18 @@ def extract_roi_crops(sample_folder, image_number, base_path, source_image="Acti
         # Crop the mask to same bounding box
         cropped_mask = roi_mask[y_min:y_max, x_min:x_max]
 
+        # Apply soft edges if requested (before padding)
+        if use_soft_edges:
+            # Apply soft edge masking to create smooth transitions
+            cropped_img, cropped_mask = apply_soft_mask(
+                cropped_img,
+                cropped_mask > 0,
+                method=soft_edge_method,
+                sigma=gaussian_sigma,
+                k=sigmoid_k,
+                d0=sigmoid_d0
+            )
+
         # Pad to square size if requested
         if pad_to_size is not None:
             h, w = cropped_img.shape[:2]
@@ -153,8 +171,14 @@ def extract_roi_crops(sample_folder, image_number, base_path, source_image="Acti
             bg_crop = np.full((*rgb_crop.shape[:2], 3), background_color, dtype=np.uint8)
 
             # Copy cell pixels onto background using mask
-            mask_3d = np.stack([cropped_mask > 0] * 3, axis=-1)
-            bg_crop[mask_3d] = rgb_crop[mask_3d]
+            if use_soft_edges:
+                # For soft edges, use the blurred mask as alpha blending
+                mask_3d = np.stack([cropped_mask] * 3, axis=-1)
+                bg_crop = (rgb_crop * mask_3d + bg_crop * (1 - mask_3d)).astype(np.uint8)
+            else:
+                # For hard edges, use binary mask
+                mask_3d = np.stack([cropped_mask > 0] * 3, axis=-1)
+                bg_crop[mask_3d] = rgb_crop[mask_3d]
 
             # Save as PNG (for viewing only - not for analysis!)
             output_filename = roi_file.stem + "_crop.png"
@@ -162,8 +186,13 @@ def extract_roi_crops(sample_folder, image_number, base_path, source_image="Acti
             Image.fromarray(bg_crop, mode='RGB').save(output_path)
         else:
             # Apply mask to image (set background to 0)
-            masked_crop = cropped_img.copy()
-            masked_crop[cropped_mask == 0] = 0
+            if not use_soft_edges:
+                # Hard cutoff: only apply if soft edges not already applied
+                masked_crop = cropped_img.copy()
+                masked_crop[cropped_mask == 0] = 0
+            else:
+                # Soft edges already applied above
+                masked_crop = cropped_img
 
             # Save as TIFF to preserve dynamic range
             output_filename = roi_file.stem + "_crop.tif"
@@ -173,8 +202,13 @@ def extract_roi_crops(sample_folder, image_number, base_path, source_image="Acti
         # Also save TIF with black background if requested
         if save_tif_blackbg:
             # Apply mask to image (set background to 0)
-            tif_masked_crop = cropped_img.copy()
-            tif_masked_crop[cropped_mask == 0] = 0
+            if not use_soft_edges:
+                # Hard cutoff: only apply if soft edges not already applied
+                tif_masked_crop = cropped_img.copy()
+                tif_masked_crop[cropped_mask == 0] = 0
+            else:
+                # Soft edges already applied above
+                tif_masked_crop = cropped_img
 
             # Save as TIFF to preserve dynamic range
             tif_output_filename = roi_file.stem + "_crop.tif"

@@ -20,7 +20,7 @@ try:
     from main import BASE_PATH
 except ImportError:
     # Fallback if main.py is not available
-    BASE_PATH = '/Users/taeeonkong/Desktop/10-16-2025/new objective'
+    BASE_PATH = '/Users/taeeonkong/Desktop/113614(FITC-500ms)'
 
 # ============================================================================
 # CONFIGURATION - EDIT THESE
@@ -88,13 +88,13 @@ def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, ve
         print(f"  Total cells: {len(df)}")
         print(f"  Samples: {df['sample'].unique().tolist()}")
 
-    # Define channels to plot (mean intensities)
+    # Define channels to plot (mean intensities), with fallbacks for PacBlue/SparkViolet
     channels = [
-        ('actin_mean', 'Actin-FITC', 'green'),
-        ('cd4_mean', 'CD4-PerCP', 'blue'),
-        ('cd45ra_sparkviolet_mean', 'CD45RA-PacBlue', 'purple'),
-        # ('cd19car_mean', 'CD19CAR-AF647', 'red'),
-        ('ccr7_mean', 'CCR7-PE', 'orange')
+        (['actin_mean'], 'Actin-FITC', 'green'),
+        (['cd4_mean'], 'CD4-PerCP', 'blue'),
+        (['cd45ra_PacBlue_mean', 'cd45ra_sparkviolet_mean'], 'CD45RA-PacBlue', 'purple'),
+        (['cd19car_mean'], 'CD19CAR-AF647', 'red'),
+        (['ccr7_mean'], 'CCR7-PE', 'orange'),
     ]
 
     # Create figure with subplots (3x2 grid for 5 channels)
@@ -102,15 +102,17 @@ def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, ve
     axes = axes.flatten()
 
     # Plot histogram for each channel
-    for i, (col_name, channel_name, color) in enumerate(channels):
+    for i, (col_names, channel_name, color) in enumerate(channels):
         ax = axes[i]
 
-        # Check if column exists
-        if col_name not in df.columns:
+        # Find the first available column from the list of candidates
+        col_name = next((c for c in col_names if c in df.columns), None)
+
+        if not col_name:
             if verbose:
-                print(f"  ⚠️  Column '{col_name}' not found, skipping {channel_name}")
+                print(f"  ⚠️  No columns found for {channel_name} (tried {col_names})")
             ax.text(0.5, 0.5, f'{channel_name}\nNot Available',
-                   ha='center', va='center', transform=ax.transAxes, fontsize=14)
+                    ha='center', va='center', transform=ax.transAxes, fontsize=14)
             ax.set_xticks([])
             ax.set_yticks([])
             continue
