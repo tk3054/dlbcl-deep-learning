@@ -32,11 +32,16 @@ from pipeline_helpers import (
 # CONFIGURATION - EDIT THESE
 # ============================================================================
 
-RAW_BASE_PATH = 'sftp://daizong@129.236.161.34/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL_raw%20images_jpg'
+# Relative to the working directory when you run the script (e.g., repo root).
+RAW_BASE_PATHS = [
+    '../DLBCL/Non-responder',
+    '../DLBCL/Responder',
+]
 PROCESSED_BASE_NAME = 'DLBCL_processed'
 COPY_RAW_TO_PROCESSED = True
 
-SAMPLES_TO_PROCESS = [1, 2, 3]  # Process all available samples
+# Leave empty to process all samples found for each patient.
+SAMPLES_TO_PROCESS = []
 
 # Optional per-sample image filtering. Define image numbers as ints.
 # Examples:
@@ -368,39 +373,51 @@ def run_patient_pipeline(base_path: str):
 
 
 def main():
-    raw_path_text = _normalize_input_path(RAW_BASE_PATH)
-    if not raw_path_text:
-        print("✗ ERROR: RAW_BASE_PATH is empty.")
+    raw_path_texts = [
+        _normalize_input_path(p) for p in RAW_BASE_PATHS if _normalize_input_path(p)
+    ]
+    if not raw_path_texts:
+        print("✗ ERROR: RAW_BASE_PATHS is empty.")
         sys.exit(1)
-
-    raw_path = Path(raw_path_text)
-    if not raw_path.exists():
-        print(f"✗ ERROR: Raw path not found: {raw_path}")
-        sys.exit(1)
-
-    processed_root = _prepare_processed_root(raw_path)
-    patient_dirs = _find_patient_dirs(processed_root)
-    if not patient_dirs:
-        print(f"✗ ERROR: No patient folders found under {processed_root}")
-        sys.exit(1)
-
-    print("\n" + "=" * 80)
-    print("REMOTE BATCH PIPELINE: PROCESSING ALL PATIENTS")
-    print("=" * 80)
-    print(f"Processed root: {processed_root}")
-    print(f"Found {len(patient_dirs)} patient folders")
-    print("=" * 80 + "\n")
 
     total_failed_patients = 0
-    for idx, patient_dir in enumerate(patient_dirs, start=1):
+    total_patients_seen = 0
+
+    for raw_path_text in raw_path_texts:
+        raw_path = Path(raw_path_text)
+        if not raw_path.exists():
+            print(f"✗ ERROR: Raw path not found: {raw_path}")
+            total_failed_patients += 1
+            continue
+
+        processed_root = _prepare_processed_root(raw_path)
+        patient_dirs = _find_patient_dirs(processed_root)
+        if not patient_dirs:
+            print(f"✗ ERROR: No patient folders found under {processed_root}")
+            total_failed_patients += 1
+            continue
+
         print("\n" + "=" * 80)
-        print(f"PATIENT {idx}/{len(patient_dirs)}: {patient_dir.name}")
-        print(f"Path: {patient_dir}")
+        print("REMOTE BATCH PIPELINE: PROCESSING ALL PATIENTS")
+        print("=" * 80)
+        print(f"Processed root: {processed_root}")
+        print(f"Found {len(patient_dirs)} patient folders")
         print("=" * 80 + "\n")
 
-        result = run_patient_pipeline(str(patient_dir))
-        if not result.get("success"):
-            total_failed_patients += 1
+        total_patients_seen += len(patient_dirs)
+        for idx, patient_dir in enumerate(patient_dirs, start=1):
+            print("\n" + "=" * 80)
+            print(f"PATIENT {idx}/{len(patient_dirs)}: {patient_dir.name}")
+            print(f"Path: {patient_dir}")
+            print("=" * 80 + "\n")
+
+            result = run_patient_pipeline(str(patient_dir))
+            if not result.get("success"):
+                total_failed_patients += 1
+
+    if total_patients_seen == 0:
+        print("\n✗ ERROR: No patient folders found in any RAW_BASE_PATHS entry.")
+        sys.exit(1)
 
     if total_failed_patients:
         print(f"\n⚠️  Completed with {total_failed_patients} patient(s) reporting failures.")

@@ -47,9 +47,10 @@ def prepare_run(base_path: str, samples_to_process: list[int]):
         if item.is_dir() and item.name.lower().startswith("sample")
     ]
     sample_folders = sorted(sample_folders, key=extract_sample_number)
-    sample_folders = [
-        s for s in sample_folders if extract_sample_number(s) in samples_to_process
-    ]
+    if samples_to_process:
+        sample_folders = [
+            s for s in sample_folders if extract_sample_number(s) in samples_to_process
+        ]
 
     if not sample_folders:
         print(f"✗ ERROR: No sample folders found in {base_path}")
