@@ -34,7 +34,7 @@ OUTPUT_FILE = "all_samples_total_intensity_histograms.png"
 # MAIN FUNCTION
 # ============================================================================
 
-def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, verbose=True):
+def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, patient_label=None, verbose=True):
     """
     Plot histograms of median intensity distributions for all channels across all samples.
 
@@ -42,6 +42,7 @@ def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, ve
         base_path: Base directory path containing the combined CSV
         csv_file: Name of combined CSV file (default: all_samples_combined.csv)
         output_file: Output filename (default: all_samples_intensity_histograms.png)
+        patient_label: Optional label for the patient (used in title and filename)
         verbose: Print progress messages
 
     Returns:
@@ -53,7 +54,10 @@ def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, ve
     if csv_file is None:
         csv_file = "all_samples_combined.csv"
     if output_file is None:
-        output_file = "all_samples_intensity_histograms.png"
+        if patient_label:
+            output_file = f"{patient_label}_intensity_histograms.png"
+        else:
+            output_file = "all_samples_intensity_histograms.png"
 
     if verbose:
         print(f"\n{'='*40}")
@@ -159,7 +163,8 @@ def plot_all_intensity_histograms(base_path, csv_file=None, output_file=None, ve
     # Hide the extra subplot (we have 5 channels in a 2x3 grid)
     axes[5].set_visible(False)
 
-    plt.suptitle(f'All Samples Combined - Intensity Distributions (n={len(df)} cells)',
+    title = patient_label if patient_label else 'All Samples Combined'
+    plt.suptitle(f'{title} - Intensity Distributions (n={len(df)} cells)',
                  fontsize=16, fontweight='bold', y=0.995)
     plt.tight_layout()
 

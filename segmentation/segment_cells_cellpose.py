@@ -5,7 +5,6 @@ Uses Cellpose deep learning models for cell segmentation instead of watershed
 
 Performs Cellpose segmentation on manually masked images and exports:
 - Individual cell ROIs as binary masks
-- Raw cell crops for quality filtering
 
 Usage:
     python segment_cells_cellpose.py
@@ -247,26 +246,6 @@ def export_cell_rois(image, labeled_mask, regions, base_dir):
     return roi_dir
 
 
-def export_raw_crops(image, bboxes, base_dir):
-    """Export raw (unpadded) cell crops for quality filtering"""
-    raw_crops_dir = os.path.join(base_dir, 'raw_crops_jpg')
-    os.makedirs(raw_crops_dir, exist_ok=True)
-
-    for i, (x, y, w, h) in enumerate(bboxes):
-        # Raw crop without padding
-        cropped = image[y:y+h, x:x+w]
-
-        if cropped.size == 0:
-            print(f"⚠️  Skipping empty bbox {i+1}")
-            continue
-
-        # Save as numbered files for easier sorting
-        save_path = os.path.join(raw_crops_dir, f'cell_{i+1:02d}.tif')
-        io.imsave(save_path, cropped.astype(np.uint8))
-
-    return raw_crops_dir
-
-
 # ============================================================================
 # MAIN PIPELINE FUNCTIONS
 # ============================================================================
@@ -298,7 +277,6 @@ def segment_cells_cellpose(sample_folder, image_number, base_path,
         dict with keys:
             - 'num_cells': Number of cells segmented
             - 'roi_dir': Path to ROI directory
-            - 'raw_crops_dir': Path to raw crops directory
             - 'detected_diameter': Detected cell diameter
             - 'success': Boolean indicating success
             - 'error': Error message if success is False
@@ -379,17 +357,8 @@ def segment_cells_cellpose(sample_folder, image_number, base_path,
     # Export ROIs
     roi_dir = export_cell_rois(image, labeled_mask, regions, base_dir)
 
-    # Load the raw image for crops (prefer _raw.jpg for true raw data)
-    if raw_files:
-        raw_image = load_image(str(raw_files[0]))
-    else:
-        raw_image = image
-
-    # Export raw crops
-    raw_crops_dir = export_raw_crops(raw_image, bboxes, base_dir)
-
     if verbose:
-        print(f"  ✓ Segmented {len(regions)} cells, exported ROIs and crops")
+        print(f"  ✓ Segmented {len(regions)} cells, exported ROIs")
 
     # Create visualization
     visualize_segmentation(base_dir, len(regions), channel_config)
@@ -398,7 +367,6 @@ def segment_cells_cellpose(sample_folder, image_number, base_path,
         'success': True,
         'num_cells': len(regions),
         'roi_dir': roi_dir,
-        'raw_crops_dir': raw_crops_dir,
         'base_dir': base_dir,
         'cell_prob_map': cell_prob_map
     }
@@ -466,6 +434,17 @@ def visualize_segmentation(base_dir, num_cells, channel_config=None):
     axes[1].set_title(f'Cellpose Segmentation ({num_cells} cells)', fontsize=14)
     axes[1].axis('off')
 
+    # Label each ROI using the same numbering as the ROI masks (cell_01, cell_02, ...)
+    for region in measure.regionprops(combined_mask):
+        if region.area == 0:
+            continue
+        y, x = region.centroid
+        axes[1].text(
+            x, y, f"{region.label:02d}",
+            color="white", fontsize=8, ha="center", va="center",
+            bbox=dict(boxstyle="round,pad=0.2", facecolor="black", alpha=0.6, linewidth=0)
+        )
+
     axes[2].imshow(overlay)
     axes[2].set_title('Cell Boundaries Overlay', fontsize=14)
     axes[2].axis('off')
@@ -510,7 +489,6 @@ def main():
     print(f"Segmented {result['num_cells']} cells")
     print(f"\nOutputs:")
     print(f"  • ROI masks: {result['roi_dir']}")
-    print(f"  • Raw crops: {result['raw_crops_dir']}")
     print(f"  • Visualization: {result['base_dir']}/cellpose_segmentation_visualization.png")
 
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Pad Masked Cells to Square Images
-Extracts cells using ROI masks and pads to square format (64x64)
+Extracts cells using ROI masks and pads to square format (224x224)
 
 This script uses the exact cell mask shapes (from cell_rois/) to extract
 only the cell pixels from the original image, then pads to a square.
@@ -29,7 +29,7 @@ SAMPLE_FOLDER = "sample1"  # Options: "sample1", "sample2", "sample3"
 IMAGE_NUMBER = "4"         # Options: "1", "2", "3", "4", etc.
 
 # Padding parameters
-TARGET_SIZE = 64  # Size of square output images
+TARGET_SIZE = 224  # Size of square output images
 
 
 # ============================================================================
@@ -114,7 +114,7 @@ def pad_to_square(image, target_size):
 # MAIN PIPELINE FUNCTIONS
 # ============================================================================
 
-def pad_masked_cells(sample_folder, image_number, base_path, target_size=64, verbose=True):
+def pad_masked_cells(sample_folder, image_number, base_path, target_size=224, verbose=True):
     """
     Extract masked cells and pad to square format.
 
@@ -124,7 +124,7 @@ def pad_masked_cells(sample_folder, image_number, base_path, target_size=64, ver
         sample_folder: Sample folder name (e.g., "sample1", "sample2")
         image_number: Image number within sample (e.g., "1", "2", "3")
         base_path: Base directory path (e.g., "/path/to/data")
-        target_size: Size of square output (default: 64)
+        target_size: Size of square output (default: 224)
         verbose: Print progress messages
 
     Returns:
@@ -220,8 +220,9 @@ def pad_masked_cells(sample_folder, image_number, base_path, target_size=64, ver
         if padded.dtype != np.uint8:
             padded = cv2.normalize(padded, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
-        # Save padded image
-        output_path = os.path.join(output_dir, roi_file.name)
+        # Save padded image with suffix
+        output_name = f"{roi_file.stem}_padded{roi_file.suffix}"
+        output_path = os.path.join(output_dir, output_name)
         io.imsave(output_path, padded)
         success_count += 1
 

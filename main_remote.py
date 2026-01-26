@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
-Main Pipeline Runner
-Automatically discovers and processes all samples and images in a directory
+Remote Pipeline Runner
+Copies a raw dataset to a processed tree, then iterates all patient folders.
 
 Usage:
-    python main.py
-    (Edit BASE_PATH below to change which directory to process)
+    python main_remote.py
+    (Edit RAW_BASE_PATH below to point to the raw dataset root)
 """
 
 import sys
+import shutil
+from pathlib import Path
+from urllib.parse import urlparse, unquote
 from process_single_image import run_pipeline, PARAMS
 from csvOps.combine_images import combine_sample
-from utils.channel_aliases import canonicalize_channel_config
+from utils.channel_aliases import canonicalize_channel_config, canonicalize_channel_list
 from utils.name_builder import NameBuilder
 from utils.config_helpers import (
     filter_image_folders,
@@ -29,7 +32,10 @@ from pipeline_helpers import (
 # CONFIGURATION - EDIT THESE
 # ============================================================================
 
-BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
+RAW_BASE_PATH = 'sftp://daizong@129.236.161.34/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL_raw%20images_jpg'
+PROCESSED_BASE_NAME = 'DLBCL_processed'
+COPY_RAW_TO_PROCESSED = True
+
 SAMPLES_TO_PROCESS = [1, 2, 3]  # Process all available samples
 
 # Optional per-sample image filtering. Define image numbers as ints.
@@ -115,8 +121,66 @@ for _channel in CHANNEL_CONFIG:
 IMAGE_FILTERS, IMAGE_FILTERS_DEFAULT = normalize_image_filter_config(IMAGES_TO_PROCESS)
 
 # ============================================================================
-def main():
-    base_path_obj, sample_folders, ij = prepare_run(BASE_PATH, SAMPLES_TO_PROCESS)
+def _normalize_input_path(path_text: str) -> str:
+    if not path_text:
+        return ""
+    if path_text.startswith("sftp://"):
+        parsed = urlparse(path_text)
+        return unquote(parsed.path or "")
+    return unquote(path_text)
+
+
+def _is_patient_dir(path: Path) -> bool:
+    return any(
+        child.is_dir() and child.name.lower().startswith("sample")
+        for child in path.iterdir()
+    )
+
+
+def _find_patient_dirs(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
+
+    candidates = [
+        item for item in root.iterdir()
+        if item.is_dir() and not item.name.startswith(".")
+    ]
+
+    direct_patients = [item for item in candidates if _is_patient_dir(item)]
+    if direct_patients:
+        return sorted(direct_patients, key=lambda p: p.name.lower())
+
+    patient_dirs: list[Path] = []
+    for response_dir in sorted(candidates, key=lambda p: p.name.lower()):
+        for patient_dir in sorted(
+            [p for p in response_dir.iterdir() if p.is_dir()],
+            key=lambda p: p.name.lower()
+        ):
+            if _is_patient_dir(patient_dir):
+                patient_dirs.append(patient_dir)
+
+    return patient_dirs
+
+
+def _prepare_processed_root(raw_path: Path) -> Path:
+    processed_path = raw_path.parent / PROCESSED_BASE_NAME
+
+    if processed_path.exists():
+        print(f"✓ Using existing processed tree: {processed_path}")
+        return processed_path
+
+    if not COPY_RAW_TO_PROCESSED:
+        print(f"✗ ERROR: Processed path not found: {processed_path}")
+        sys.exit(1)
+
+    print(f"Copying raw dataset to processed tree:\n  {raw_path}\n→ {processed_path}")
+    shutil.copytree(raw_path, processed_path)
+    print("✓ Copy complete")
+    return processed_path
+
+
+def run_patient_pipeline(base_path: str):
+    base_path_obj, sample_folders, ij = prepare_run(base_path, SAMPLES_TO_PROCESS)
 
     total_processed = 0
     total_failed = 0
@@ -162,7 +226,7 @@ def main():
                 result = run_pipeline(
                     sample_folder=sample_folder,
                     image_number=image_number,
-                    base_path=BASE_PATH,
+                    base_path=base_path,
                     segmentation_method='cellpose',
                     params=PARAMS,
                     channel_config=channel_config_for_image,
@@ -190,7 +254,7 @@ def main():
                             compare_multiple_cells(
                                 sample_folder=sample_folder,
                                 image_number=image_number,
-                                base_path=BASE_PATH,
+                    base_path=base_path,
                                 num_cells=NUM_CELLS_TO_COMPARE
                             )
                             print(f"  ↳ Generated edge comparisons for {sample_folder}/{image_number}")
@@ -228,7 +292,7 @@ def main():
         try:
             combine_sample(
                 sample_name=sample_folder,
-                base_path=BASE_PATH,
+                base_path=base_path,
                 verbose=True
             )
         except Exception as e:
@@ -254,8 +318,11 @@ def main():
         print(f"✗ Wrote failure log: {log_path}")
 
     if total_failed > 0:
-        import sys
-        sys.exit(1)
+        return {
+            "success": False,
+            "total_failed": total_failed,
+            "failed_images": failed_images,
+        }
 
     print("\n" + "="*80)
     print("COMBINING ALL SAMPLES INTO MASTER CSV")
@@ -263,11 +330,16 @@ def main():
 
     try:
         from csvOps import combine_samples
+        combine_samples.BASE_PATH = base_path
+        combine_samples.CHANNEL_CONFIG = CHANNEL_CONFIG
+        combine_samples.CHANNELS_LIST = canonicalize_channel_list(CHANNEL_CONFIG.keys())
+        combine_samples.SAMPLES_TO_PROCESS = SAMPLES_TO_PROCESS
+        combine_samples.IMAGES_TO_PROCESS = IMAGES_TO_PROCESS
         combine_samples.main()
 
         from analysis.classify_tcells import classify_tcells
         classify_result = classify_tcells(
-            base_path=BASE_PATH,
+            base_path=base_path,
             verbose=True
         )
 
@@ -292,6 +364,47 @@ def main():
         import traceback
         traceback.print_exc()
 
+    return {"success": True, "total_failed": total_failed, "failed_images": failed_images}
+
+
+def main():
+    raw_path_text = _normalize_input_path(RAW_BASE_PATH)
+    if not raw_path_text:
+        print("✗ ERROR: RAW_BASE_PATH is empty.")
+        sys.exit(1)
+
+    raw_path = Path(raw_path_text)
+    if not raw_path.exists():
+        print(f"✗ ERROR: Raw path not found: {raw_path}")
+        sys.exit(1)
+
+    processed_root = _prepare_processed_root(raw_path)
+    patient_dirs = _find_patient_dirs(processed_root)
+    if not patient_dirs:
+        print(f"✗ ERROR: No patient folders found under {processed_root}")
+        sys.exit(1)
+
+    print("\n" + "=" * 80)
+    print("REMOTE BATCH PIPELINE: PROCESSING ALL PATIENTS")
+    print("=" * 80)
+    print(f"Processed root: {processed_root}")
+    print(f"Found {len(patient_dirs)} patient folders")
+    print("=" * 80 + "\n")
+
+    total_failed_patients = 0
+    for idx, patient_dir in enumerate(patient_dirs, start=1):
+        print("\n" + "=" * 80)
+        print(f"PATIENT {idx}/{len(patient_dirs)}: {patient_dir.name}")
+        print(f"Path: {patient_dir}")
+        print("=" * 80 + "\n")
+
+        result = run_patient_pipeline(str(patient_dir))
+        if not result.get("success"):
+            total_failed_patients += 1
+
+    if total_failed_patients:
+        print(f"\n⚠️  Completed with {total_failed_patients} patient(s) reporting failures.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

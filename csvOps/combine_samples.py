@@ -10,7 +10,7 @@ Flow:
 4. Combines all sample-level CSVs into master all_samples_combined.csv
 
 Usage:
-    python csvOps/combine_all.py
+    python csvOps/combine_samples.py
 """
 
 import pandas as pd
@@ -20,12 +20,19 @@ import re
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from csvOps.combine_channel import combine_measurements
+from csvOps.combine_channels import combine_measurements
 from utils.channel_aliases import canonicalize_channel_config, canonicalize_channel_list
+from utils.config_helpers import normalize_image_filter_config, filter_image_folders
+from utils.name_builder import extract_image_number, extract_patient_id_from_path
 
 # Import BASE_PATH / channel config / samples from main.py (single source of truth)
 try:
-    from main import BASE_PATH, CHANNEL_CONFIG, SAMPLES_TO_PROCESS
+    from main import (
+        BASE_PATH,
+        CHANNEL_CONFIG,
+        SAMPLES_TO_PROCESS,
+        IMAGES_TO_PROCESS,
+    )
 except ImportError as exc:
     raise ImportError("combine_all.py must be run where main.py is importable so channel configuration is shared.") from exc
 
@@ -38,6 +45,9 @@ CHANNELS_LIST = canonicalize_channel_list(CHANNEL_CONFIG.keys())
 
 # SAMPLES_TO_PROCESS is now imported from main.py above
 OUTPUT_FILE = "all_samples_combined.csv"
+PLOT_AREA_HISTOGRAM = True
+AREA_HISTOGRAM_BINS = 50
+AREA_HISTOGRAM_FILE = "cell_area_histogram.png"
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -101,6 +111,8 @@ def delete_old_sample_csvs(sample_folders, verbose=True):
 
 def combine_images_per_sample(sample_folders, verbose=True):
     """For each sample, combine all image CSVs into sample-level CSV"""
+    base_path_obj = Path(BASE_PATH)
+    filters_map, filters_default = normalize_image_filter_config(IMAGES_TO_PROCESS)
     if verbose:
         print("\n" + "="*80)
         print("STEP 2: Combining images within each sample")
@@ -116,6 +128,15 @@ def combine_images_per_sample(sample_folders, verbose=True):
 
         # Find all image subdirectories
         image_folders = sorted([item for item in sample_folder.iterdir() if item.is_dir()])
+        image_folder_names = [item.name for item in image_folders]
+        image_folder_names = filter_image_folders(
+            sample_folder.name,
+            image_folder_names,
+            filters_map,
+            filters_default,
+            announce=verbose,
+        )
+        image_folders = [sample_folder / name for name in image_folder_names]
 
         if not image_folders:
             if verbose:
@@ -174,9 +195,18 @@ def combine_images_per_sample(sample_folders, verbose=True):
 
         sample_df = pd.concat(all_image_data, ignore_index=True)
 
-        # Add unique_id column (format: sample_image_cellid)
+        # Normalize image column to zero-padded numbers
+        def _image_number(text):
+            value = extract_image_number(text)
+            return f"{int(value):02d}" if value is not None else str(text)
+
+        sample_df['image'] = sample_df['image'].apply(_image_number)
+
+        # Add unique_id column (format: patientId_sampleNumber_image_cellid)
+        patient_id = extract_patient_id_from_path(base_path_obj) or "UnknownPatient"
         sample_df['unique_id'] = sample_df.apply(
-            lambda row: f"{row['sample']}_{row['image']}_{row['cell_id']}", axis=1
+            lambda row: f"{patient_id}_{extract_sample_number(row['sample'])}_{row['image']}_{int(row['cell_id']):02d}",
+            axis=1,
         )
         # Move unique_id to first column
         cols = list(sample_df.columns)
@@ -262,9 +292,38 @@ def combine_all_samples(base_path, sample_folders, output_file, verbose=True):
         print(f"Adding global cell IDs...")
     combined_df.insert(0, 'global_cell_id', range(1, len(combined_df) + 1))
 
+
     # Save combined file
     output_path = Path(base_path) / output_file
     combined_df.to_csv(output_path, index=False)
+
+    # Plot histogram of cell area (if available)
+    if PLOT_AREA_HISTOGRAM:
+        if 'area' in combined_df.columns:
+            try:
+                import matplotlib
+                matplotlib.use('Agg')  # Headless-safe
+                import matplotlib.pyplot as plt
+
+                area_data = combined_df['area'].dropna()
+                plt.figure(figsize=(8, 5))
+                plt.hist(area_data, bins=AREA_HISTOGRAM_BINS, color="#2a6f97", edgecolor="#1b3b5a")
+                plt.title("Cell Area Histogram")
+                plt.xlabel("Area (pixels)")
+                plt.ylabel("Count")
+                plt.tight_layout()
+
+                hist_path = Path(base_path) / AREA_HISTOGRAM_FILE
+                plt.savefig(hist_path, dpi=150)
+                plt.close()
+
+                if verbose:
+                    print(f"✓ Saved area histogram: {hist_path}")
+            except Exception as e:
+                if verbose:
+                    print(f"⚠️  Failed to plot area histogram: {e}")
+        elif verbose:
+            print("⚠️  'area' column not found; skipping histogram.")
 
     if verbose:
         print(f"\n{'='*80}")

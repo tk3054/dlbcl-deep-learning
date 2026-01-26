@@ -18,9 +18,9 @@ from pathlib import Path
 import imageJ_scripts.imagej_functions as imagej_functions
 import segmentation.segment_cells_cellpose as segment_cells_cellpose
 import segmentation.shrink_roi as shrink_roi
-import process_image.extract_roi_crops as extract_roi_crops
-import process_image.visualize_rois_on_jpg as visualize_rois_on_jpg
-import csvOps.combine_channel as combine_channel
+import process_image.make_raw_crops as make_raw_crops
+import process_image.pad_raw_crops as pad_raw_crops
+import csvOps.combine_channels as combine_channel
 from utils.channel_aliases import canonicalize_channel_config, canonicalize_channel_list
 
 
@@ -79,12 +79,12 @@ SEGMENTATION_METHOD = 'cellpose'  # Options: 'cellpose' or 'watershed'
 PARAMS = {
     # Segmentation - Cellpose (deep learning)
     'cellpose_model': 'cyto2',
-    'cellpose_diameter': 400,      # Increased for larger cells
+    'cellpose_diameter': 250,      # Increased for larger cells
     'cellpose_flow_threshold': 0.6,  # Higher = tighter fit (was 0.4)
     'cellpose_cellprob_threshold': -2.0,
     'cellpose_use_gpu': True,
-    'min_size': 200,
-    'max_size': 20000,
+    'min_size': 180,
+    'max_size': 100000,
 
     # Filtering
     'consecutive_threshold': 20,
@@ -245,148 +245,56 @@ def run_pipeline(sample_folder, image_number, base_path,
         if not result['success']:
             return {'success': False, 'error': f"Channel preprocessing failed: {result['error']}", 'results': results}
 
+        # # ====================================================================
+        # # STEP 5: Create JPG Duplicates (from processed files)
+        # # ====================================================================
+        # if verbose:
+        #     print("\nSTEP 5: Create JPG Duplicates")
+        #     print("-" * 80)
+
+        # result = imagej_functions.make_duplicate_jpg(
+        #     sample_folder=sample_folder,
+        #     image_number=image_number,
+        #     base_path=base_path,
+        #     channel_config=channel_config,
+        #     ij=ij,
+        #     verbose=verbose
+        # )
+        # results['make_jpg'] = result
+
+        # if not result['success']:
+        #     return {'success': False, 'error': f"JPG creation failed: {result['error']}", 'results': results}
+
         # ====================================================================
-        # STEP 5: Create JPG Duplicates (from processed files)
+        # STEP 6: Create ROI-Masked Raw Crops
         # ====================================================================
         if verbose:
-            print("\nSTEP 5: Create JPG Duplicates")
+            print("\nSTEP 6: Create ROI-Masked Raw Crops")
             print("-" * 80)
 
-        result = imagej_functions.make_duplicate_jpg(
+        result_raw_crops = make_raw_crops.make_raw_crops(
             sample_folder=sample_folder,
             image_number=image_number,
             base_path=base_path,
-            channel_config=channel_config,
-            ij=ij,
-            verbose=verbose
+            source_image=channel_config.get('actin', 'Actin-FITC.tif'),
+            roi_dir_name=roi_dir_name,
+            output_dir_name="raw_crops",
+            background="transparent",
+            verbose=False
         )
-        results['make_jpg'] = result
+        results['raw_crops'] = result_raw_crops
 
-        if not result['success']:
-            return {'success': False, 'error': f"JPG creation failed: {result['error']}", 'results': results}
-
-        # ====================================================================
-        # STEP 6: Extract ROI Crops (with multiple soft edge methods)
-        # ====================================================================
-        if verbose:
-            print("\nSTEP 6: Extract ROI Crops (Multiple Methods)")
-            print("-" * 80)
-
-        # Get soft edge methods from params
-        soft_edge_methods = params.get('soft_edge_methods', [
-            {'name': 'hard', 'use_soft_edges': False}
-        ])
-
-        # Extract crops using each softening method
-        for method_config in soft_edge_methods:
-            method_name = method_config.get('name', 'unknown')
-            use_soft = method_config.get('use_soft_edges', False)
-
-            if verbose:
-                print(f"\n  Processing with method: {method_name}")
-
-            # Extract parameters for this method
-            soft_method = method_config.get('method', 'gaussian')
-            sigma = method_config.get('sigma', 2.0)
-            k = method_config.get('k', 2.0)
-            d0 = method_config.get('d0', 0.0)
-
-            # TIF version (full dynamic range)
-            result_tif = extract_roi_crops.extract_roi_crops(
-                sample_folder=sample_folder,
-                image_number=image_number,
-                base_path=base_path,
-                source_image=channel_config.get('actin', 'Actin-FITC.tif'),
-                output_dir_name=f"roi_crops_tif_{method_name}",
-                use_transparency=False,
-                roi_dir_name=roi_dir_name,
-                use_soft_edges=use_soft,
-                soft_edge_method=soft_method,
-                gaussian_sigma=sigma,
-                sigmoid_k=k,
-                sigmoid_d0=d0,
-                verbose=False
-            )
-            results[f'roi_crops_tif_{method_name}'] = result_tif
-
-            # PNG with white background
-            original_actin = channel_config.get('actin', 'Actin-FITC.tif')
-            if (base_dir_path / original_actin).exists():
-                result_whitebg = extract_roi_crops.extract_roi_crops(
-                    sample_folder=sample_folder,
-                    image_number=image_number,
-                    base_path=base_path,
-                    source_image=original_actin,
-                    output_dir_name=f"roi_crops_whiteBg_{method_name}",
-                    use_transparency=True,
-                    background_color=255,
-                    roi_dir_name=roi_dir_name,
-                    use_soft_edges=use_soft,
-                    soft_edge_method=soft_method,
-                    gaussian_sigma=sigma,
-                    sigmoid_k=k,
-                    sigmoid_d0=d0,
-                    verbose=False
-                )
-                results[f'roi_crops_whiteBg_{method_name}'] = result_whitebg
-
-                # PNG with black background
-                result_blackbg = extract_roi_crops.extract_roi_crops(
-                    sample_folder=sample_folder,
-                    image_number=image_number,
-                    base_path=base_path,
-                    source_image=original_actin,
-                    output_dir_name=f"roi_crops_blackBg_{method_name}",
-                    use_transparency=True,
-                    background_color=0,
-                    roi_dir_name=roi_dir_name,
-                    use_soft_edges=use_soft,
-                    soft_edge_method=soft_method,
-                    gaussian_sigma=sigma,
-                    sigmoid_k=k,
-                    sigmoid_d0=d0,
-                    verbose=False
-                )
-                results[f'roi_crops_blackBg_{method_name}'] = result_blackbg
-
-        if verbose:
-            print(f"\n  ✓ Generated crops for {len(soft_edge_methods)} methods")
-
-        # ====================================================================
-        # STEP 7: Visualize ROIs on JPG Images
-        # ====================================================================
-        if verbose:
-            print("\nSTEP 7: Visualize ROIs on JPG Images")
-            print("-" * 80)
-
-        result = visualize_rois_on_jpg.create_roi_visualization(
+        result_padded = pad_raw_crops.pad_masked_cells(
             sample_folder=sample_folder,
             image_number=image_number,
             base_path=base_path,
-            shrink_pixels=params.get('shrink_pixels', 3),
-            verbose=verbose
+            target_size=224,
+            verbose=False
         )
-        results['roi_visualization'] = result
+        results['padded_cells'] = result_padded
 
-        if not result['success']:
-            # Non-fatal: continue even if visualization fails
-            if verbose:
-                print(f"  ⚠️  Visualization failed: {result['error']}")
-
-        # Create multi-channel comparison
-        result_comparison = visualize_rois_on_jpg.visualize_roi_all_channels(
-            sample_folder=sample_folder,
-            image_number=image_number,
-            base_path=base_path,
-            shrink_pixels=params.get('shrink_pixels', 3),
-            verbose=verbose
-        )
-        results['roi_comparison'] = result_comparison
-
-        if not result_comparison['success']:
-            # Non-fatal: continue even if comparison fails
-            if verbose:
-                print(f"  ⚠️  Multi-channel comparison failed: {result_comparison['error']}")
+        if verbose:
+            print("\n  ✓ Generated ROI-masked raw crops and padded cells")
 
         # ====================================================================
         # STEP 8: Load ROIs in ImageJ

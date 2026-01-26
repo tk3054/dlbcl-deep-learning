@@ -11,7 +11,7 @@ Usage:
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from csvOps.combine_channel import combine_measurements
+from csvOps.combine_channels import combine_measurements
 from utils.channel_aliases import canonicalize_channel_config, canonicalize_channel_list
 
 # Import BASE_PATH and channel configuration from main.py (single source of truth)
@@ -147,8 +147,8 @@ def main():
     print("="*80 + "\n")
 
     try:
-        from csvOps import combine_all
-        combine_all.main()
+        from csvOps import combine_samples
+        combine_samples.main()
     except Exception as e:
         print(f"\n✗ Failed to create master combined CSV: {str(e)}")
         import sys

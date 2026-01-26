@@ -13,6 +13,7 @@ CLI usage examples:
 
 import argparse
 import sys
+import re
 from pathlib import Path
 
 import numpy as np
@@ -21,6 +22,21 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from utils.channel_aliases import canonicalize_channel_config, canonicalize_channel_list
+from utils.name_builder import extract_image_number, extract_patient_id_from_path
+
+DYE_TOKENS = {
+    "af647",
+    "sparkviolet",
+    "pacblue",
+    "percp",
+    "af594",
+    "fitc",
+}
+
+def _strip_dye_tokens(channel_name: str) -> str:
+    parts = channel_name.split("_")
+    cleaned = [p for p in parts if p.lower() not in DYE_TOKENS]
+    return "_".join(cleaned) if cleaned else channel_name
 
 # Pull channel configuration from main.py so that it is defined in one place.
 # If main.py is not importable (e.g., running this file in isolation), callers
@@ -207,7 +223,8 @@ def combine_measurements(sample_folder, image_number, base_path, channel_config=
             combined_df = df[cols_to_keep].copy()
 
             # Rename intensity columns with channel prefix (don't rename cell_id or morphology)
-            rename_map = {col: f"{channel_name}_{col}" for col in intensity_cols if col in cols_to_keep}
+            channel_label = _strip_dye_tokens(channel_name)
+            rename_map = {col: f"{channel_label}_{col}" for col in intensity_cols if col in cols_to_keep}
             combined_df = combined_df.rename(columns=rename_map)
 
             if verbose:
@@ -229,7 +246,8 @@ def combine_measurements(sample_folder, image_number, base_path, channel_config=
             channel_df = df[cols_to_keep].copy()
 
             # Rename intensity columns with channel prefix (don't rename cell_id)
-            rename_map = {col: f"{channel_name}_{col}" for col in intensity_cols if col in cols_to_keep}
+            channel_label = _strip_dye_tokens(channel_name)
+            rename_map = {col: f"{channel_label}_{col}" for col in intensity_cols if col in cols_to_keep}
             channel_df = channel_df.rename(columns=rename_map)
 
             # Merge with combined table
@@ -243,11 +261,23 @@ def combine_measurements(sample_folder, image_number, base_path, channel_config=
 
     # Add sample and image info columns
     combined_df.insert(0, 'sample', sample_folder)
-    combined_df.insert(1, 'image', image_number)
+    image_value = extract_image_number(image_number)
+    image_label = f"{int(image_value):02d}" if image_value is not None else str(image_number)
+    combined_df.insert(1, 'image', image_label)
 
-    # Add unique_id column (format: sample_image_cellid)
+    # Add unique_id column (format: sampleNumber_image_cellid)
+    def _sample_number(text):
+        match = re.search(r"(\d+)", str(text))
+        return match.group(1) if match else str(text)
+
+    patient_id = extract_patient_id_from_path(Path(base_path)) or "UnknownPatient"
+    def _image_number(text):
+        value = extract_image_number(text)
+        return f"{int(value):02d}" if value is not None else str(text)
+
     combined_df['unique_id'] = combined_df.apply(
-        lambda row: f"{row['sample']}_{row['image']}_{row['cell_id']}", axis=1
+        lambda row: f"{patient_id}_{_sample_number(row['sample'])}_{_image_number(row['image'])}_{int(row['cell_id']):02d}",
+        axis=1,
     )
     # Move unique_id to first column
     cols = list(combined_df.columns)

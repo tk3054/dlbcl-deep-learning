@@ -23,7 +23,7 @@ SAMPLE_FOLDER = "sample1"  # Options: "sample1", "sample2", "sample3"
 IMAGE_NUMBER = "4"         # Options: "1", "2", "3", "4", etc.
 
 # Auto-generated paths
-BASE_PATH = "/Users/taeeonkong/Desktop/Project/Summer2025/20250729_CLLSaSa/1to10"
+BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
 BASE_DIR = f"{BASE_PATH}/{SAMPLE_FOLDER}/{IMAGE_NUMBER}"
 RAW_CROPS_DIR = f"{BASE_DIR}/raw_crops"
 

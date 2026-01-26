@@ -75,13 +75,31 @@ def filter_image_folders(sample_folder, folders, filters_map, filters_default, a
         return folders
 
     allowed_strings = {str(item) for item in allowed}
-    filtered = [folder for folder in folders if folder in allowed_strings]
+    # Support folders like "14[large cell]" when user specifies "14".
+    filtered = []
+    for folder in folders:
+        if folder in allowed_strings:
+            filtered.append(folder)
+            continue
+        # If allowed value is numeric, allow prefix match on folder name.
+        # e.g. allowed "14" matches "14[large cell]"
+        for allowed_val in allowed_strings:
+            if allowed_val.isdigit() and folder.startswith(allowed_val):
+                next_char = folder[len(allowed_val):len(allowed_val)+1]
+                if next_char == "" or not next_char.isdigit():
+                    filtered.append(folder)
+                    break
 
     if announce:
         if filtered:
+            def _image_sort_key(value):
+                if value.isdigit():
+                    return (0, int(value))
+                return (1, value)
+
             print(
                 f"Restricting to configured images for {sample_folder}: "
-                f"{', '.join(sorted(filtered, key=lambda x: int(x) if x.isdigit() else x))}"
+                f"{', '.join(sorted(filtered, key=_image_sort_key))}"
             )
         else:
             print(

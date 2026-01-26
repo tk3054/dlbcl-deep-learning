@@ -9,7 +9,7 @@ Usage:
 
 from pathlib import Path
 import shutil
-from main import BASE_PATH
+BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
 
 def cleanup_non_tif_files(base_path, verbose=True):
     """
@@ -43,6 +43,14 @@ def cleanup_non_tif_files(base_path, verbose=True):
         if verbose:
             print(f"\nCleaning {sample_folder.name}...")
 
+        # Delete formatted_cells folder at the sample/patient level
+        formatted_cells_dir = sample_folder / "formatted_cells"
+        if formatted_cells_dir.exists() and formatted_cells_dir.is_dir():
+            shutil.rmtree(formatted_cells_dir)
+            deleted_dirs += 1
+            if verbose:
+                print(f"  ✗ Deleted dir: {formatted_cells_dir.name}/")
+
         # Find all image subdirectories
         image_folders = [item for item in sample_folder.iterdir() if item.is_dir()]
 
@@ -65,6 +73,7 @@ def cleanup_non_tif_files(base_path, verbose=True):
                         item.suffix.lower() == '.tif'
                         and not item.name.startswith('processed_')
                         and item.name != 'original_image.tif'
+                        and item.name != 'cellpose_prob_map.tif'
                     )
 
                     if keep_tif:
@@ -93,6 +102,14 @@ def cleanup_non_tif_files(base_path, verbose=True):
             deleted_files += 1
             if verbose:
                 print(f"\n✗ Deleted base-level: {item.name}")
+
+    # Delete base-level formatted_cells directory if present
+    formatted_cells_dir = base_path_obj / "formatted_cells"
+    if formatted_cells_dir.exists() and formatted_cells_dir.is_dir():
+        shutil.rmtree(formatted_cells_dir)
+        deleted_dirs += 1
+        if verbose:
+            print(f"\n✗ Deleted base-level dir: {formatted_cells_dir.name}/")
 
     print("\n" + "="*80)
     print("CLEANUP COMPLETE")
