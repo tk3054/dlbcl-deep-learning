@@ -4,11 +4,11 @@ Name Cell ROI Crops for Export
 Renames cell crop files in the target ROI directory with standardized naming
 based on patient folder, sample/image numbers, and cell classification.
 
-Naming format: {experiment_prefix}_sample{N}_image{NN}_cell{NN}_{classification}.tif
+Naming format: {response}_{experiment_prefix}_sample{N}_image{NN}_cell{NN}_{lineage}_{cell_type}_{subset}.tif
 
 Example:
-- nonresponder_109241_01-03-2026_1to10_sample1_image01_cell01_native_CD4_Naive.tif
-- nonresponder_109241_01-03-2026_1to10_sample1_image02_cell03_CART_CD8_TEM.tif
+- nonresponder_12-16-2025_DLBCL_108859_sample01_image01_cell01_native_CD4_Naive.tif
+- nonresponder_12-16-2025_DLBCL_108859_sample01_image02_cell03_CART_CD8_TEM.tif
 
 Usage:
     python name_cells.py
@@ -60,9 +60,9 @@ def extract_abbreviation(text):
     Extract abbreviation from parentheses in text.
 
     Examples:
-        "Central Memory (TCM)" -> "TCM"
-        "Effector Memory (TEM)" -> "TEM"
-        "Terminal Effector (TEMRA)" -> "TEMRA"
+        "Central Memory (CM)" -> "CM"
+        "Effector Memory (EM)" -> "EM"
+        "Effector" -> "Effector"
         "Naive" -> "Naive"
 
     Args:
@@ -98,67 +98,86 @@ def _cd_tag_from_text(text):
     return None
 
 
+def _to_bool(value):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    text = str(value).strip().lower()
+    if text in {"1", "true", "t", "yes", "y"}:
+        return True
+    if text in {"0", "false", "f", "no", "n"}:
+        return False
+    return False
+
+
+def _normalize_component(text):
+    cleaned = re.sub(r"\s+", "_", str(text).strip())
+    cleaned = re.sub(r"[^\w\-]+", "_", cleaned)
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    return cleaned
+
+
+def _normalize_response_label(text):
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "", str(text).strip()).lower()
+    return cleaned
+
+
 def detect_experiment_prefix(base_path):
     """
     Build experiment prefix from the patient folder path.
 
     Example:
-      /.../non-responder/01-03-2026 DLBCL 109241
-      -> nonresponder_109241
+      /.../non-responder/12-16-2025 DLBCL 108859
+      -> 12-16-2025_DLBCL_108859
     """
     base_path = Path(base_path)
     patient_folder = base_path.name
-    group_folder = base_path.parent.name
-
-    group = re.sub(r"[^A-Za-z0-9]+", "", group_folder).lower()
-    if not group:
-        group = "unknown"
-
-    match = re.search(r"\bDLBCL\s+(\d+)\b", patient_folder, flags=re.IGNORECASE)
-    patient_id = match.group(1) if match else None
-    if not patient_id:
-        match = re.search(r"(\d+)\s*$", patient_folder)
-        patient_id = match.group(1) if match else "unknown"
-
-    return f"{group}_{patient_id}"
+    return _normalize_component(patient_folder) or "unknown_experiment"
 
 
-def format_cell_classification(cell_type, subset):
+def detect_response_label(base_path):
+    base_path = Path(base_path)
+    response_folder = base_path.parent.name
+    response = _normalize_response_label(response_folder)
+    return response or "unknownresponse"
+
+
+def format_lineage_label(car_positive, cell_type, subset):
     """
-    Format cell classification for filename.
+    Format lineage/type/subset label for filename.
 
     Rules:
-    - Native CD4+ cells: native_CD4_{subset}
-    - Native CD4- cells: native_CD8_{subset}
-    - CAR-T cells: CART_CD4_{subset} or CART_CD8_{subset}
+    - Lineage is native or CART based on car_positive
+    - CD4 vs CD8 is determined from cell_type
+    - Subtype is derived from tcell_subset (abbreviation if present)
+    - No QC classification suffix
 
     Args:
-        cell_type: Cell type (e.g., "CD4+", "CD4-", "CAR-T")
-        subset: Cell subset (e.g., "Naive", "Central Memory (TCM)", "N/A")
+        car_positive: Bool or value indicating CAR positivity
+        cell_type: CD4/CD8 label (e.g., "CD4+", "CD8+")
+        subset: Cell subset (e.g., "CD4+ Central Memory (TCM)")
 
     Returns:
-        Formatted classification string
+        Formatted label string
     """
+    cell_type = (cell_type or "").strip()
     subset = _normalize_subset(subset)
-    abbrev = extract_abbreviation(subset) if subset else None
 
-    # Handle CAR-T cells
-    if cell_type == "CAR-T":
+    lineage = "CART" if _to_bool(car_positive) else "native"
+
+    cd_tag = _cd_tag_from_text(cell_type)
+    if not cd_tag and subset:
         cd_tag = _cd_tag_from_text(subset)
-        if subset:
-            subset = re.sub(r"^CAR-T\s+(CD4\+|CD4-|CD8)\s+", "", subset)
-        abbrev = extract_abbreviation(subset) if subset else None
-        if not cd_tag:
-            cd_tag = "CD4"
-        return f"CART_{cd_tag}_{abbrev}" if abbrev else f"CART_{cd_tag}"
+    cd_tag = cd_tag or "Unknown"
 
-    # Handle native CD4/CD8 cells
-    if cell_type in {"CD4+", "CD4-"}:
-        cd_tag = "CD4" if cell_type == "CD4+" else "CD8"
-        return f"native_{cd_tag}_{abbrev}" if abbrev else f"native_{cd_tag}"
+    if subset:
+        subset = re.sub(r"^CAR-T\s+", "", subset)
+        subset = re.sub(r"^(CD4\+|CD4-|CD8\+|CD8-)\s+", "", subset)
+    abbrev = extract_abbreviation(subset) if subset else None
+    subtype = _normalize_component(abbrev or "Unknown")
 
-    # Fallback
-    return f"{cell_type}_{abbrev}".replace(" ", "_") if abbrev else str(cell_type).replace(" ", "_")
+    return f"{lineage}_{cd_tag}_{subtype}"
 
 
 def name_cells(base_path, verbose=True):
@@ -175,15 +194,10 @@ def name_cells(base_path, verbose=True):
             - 'num_renamed': Number of files renamed
             - 'renames': List of (old_name, new_name) tuples
     """
+    response = detect_response_label(base_path)
     experiment_prefix = detect_experiment_prefix(base_path)
     input_csv = NAME_CELLS_INPUT_CSV
     target_dir = NAME_CELLS_TARGET_DIR
-
-    if verbose:
-        print("\n" + "="*80)
-        print("RENAME CELL CROPS FOR EXPORT")
-        print("="*80)
-        print(f"\nExperiment prefix: {experiment_prefix}")
 
     # Load classified CSV
     csv_path = Path(base_path) / input_csv
@@ -195,13 +209,7 @@ def name_cells(base_path, verbose=True):
             'renames': []
         }
 
-    if verbose:
-        print(f"Loading: {input_csv}")
-
     df = pd.read_csv(csv_path)
-
-    if verbose:
-        print(f"  Total cells in CSV: {len(df)}")
 
     # Track renames
     renames = []
@@ -213,8 +221,9 @@ def name_cells(base_path, verbose=True):
         sample_folder = row['sample']
         image_number = row['image']
         cell_number = row['cell_id']
-        cell_type = row['cell_type']
-        subset = row['tcell_subset']
+        car_positive = row.get('car_positive')
+        cell_type = row.get('cell_type')
+        subset = row.get('tcell_subset')
 
         # Format components
         sample_raw = sample_folder.replace('sample', '')
@@ -226,7 +235,7 @@ def name_cells(base_path, verbose=True):
             else str(image_number)
         )
         cell_num = str(cell_number).zfill(2)
-        classification = format_cell_classification(cell_type, subset)
+        lineage_label = format_lineage_label(car_positive, cell_type, subset)
 
         # Build paths (support folders like "14[large cell]" when CSV uses "14")
         sample_dir = Path(base_path) / str(sample_folder)
@@ -248,8 +257,6 @@ def name_cells(base_path, verbose=True):
                             break
 
         if not image_folder:
-            if verbose:
-                print(f"  ⚠️  Image folder not found for {sample_folder}/{image_number}")
             num_skipped += 1
             continue
 
@@ -257,8 +264,6 @@ def name_cells(base_path, verbose=True):
         crop_dir = base_dir / target_dir
 
         if not crop_dir.exists():
-            if verbose and idx == 0:
-                print(f"  ⚠️  Warning: {target_dir}/ not found in {sample_folder}/{image_number}")
             num_skipped += 1
             continue
 
@@ -267,13 +272,11 @@ def name_cells(base_path, verbose=True):
         original_path = crop_dir / original_filename
 
         if not original_path.exists():
-            if verbose:
-                print(f"  ⚠️  File not found: {original_path}")
             num_skipped += 1
             continue
 
         # Build new filename
-        new_filename = f"{experiment_prefix}_sample{sample_num}_image{image_num}_cell{cell_num}_{classification}.tif"
+        new_filename = f"{response}_{experiment_prefix}_sample{sample_num}_image{image_num}_cell{cell_num}_{lineage_label}.tif"
         new_path = crop_dir / new_filename
 
         # Record rename
@@ -284,20 +287,9 @@ def name_cells(base_path, verbose=True):
 
         num_renamed += 1
 
-        if verbose and num_renamed <= 5:
-            print(f"\n  {original_path.name}")
-            print(f"    → {new_filename}")
-
     if verbose:
-        print("\n" + "="*80)
-        print("SUMMARY")
-        print("="*80)
-        print(f"Files renamed: {num_renamed}")
-        print(f"Files skipped: {num_skipped}")
-
-        print("\n✓ Files renamed successfully!")
-
-        print("="*80 + "\n")
+        status = "✓ Files renamed successfully!" if num_renamed > 0 else "✗ No files renamed."
+        print(status)
 
     return {
         'success': True,
@@ -325,7 +317,7 @@ def main():
     )
 
     if not result['success']:
-        print(f"\n✗ Error: {result.get('error', 'Unknown error')}")
+        print(f"✗ Failed: {result.get('error', 'Unknown error')}")
         sys.exit(1)
 
 

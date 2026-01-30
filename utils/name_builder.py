@@ -78,18 +78,31 @@ def format_cell_classification(cell_type: str, subset: str) -> str:
             return "CD8"
         return None
 
+    def _lineage_from_text(text: str) -> Optional[str]:
+        if not text:
+            return None
+        if "CAR-T" in text or "CART" in text:
+            return "CART"
+        if text.lower() in {"native", "naive"}:
+            return "native"
+        return None
+
+    lineage = _lineage_from_text(cell_type) or _lineage_from_text(subset)
+    if not lineage and cell_type in {"CD4+", "CD4-", "CD8+", "CD8-"}:
+        lineage = "native"
+
+    cd_tag = _cd_tag_from_text(subset) or _cd_tag_from_text(cell_type)
+
+    if subset:
+        subset = re.sub(r"^CAR-T\s+", "", subset)
+        subset = re.sub(r"^(CD4\+|CD4-|CD8\+|CD8-)\s+", "", subset)
+
     abbrev = extract_abbreviation(subset) if subset else ""
 
-    if cell_type == "CAR-T":
-        cd_tag = _cd_tag_from_text(subset) or "CD4"
-        if subset:
-            subset = re.sub(r"^CAR-T\s+(CD4\+|CD4-|CD8)\s+", "", subset)
-            abbrev = extract_abbreviation(subset) if subset else ""
-        return _normalize_component(f"CART_{cd_tag}_{abbrev}".strip("_"))
-
-    if cell_type in {"CD4+", "CD4-"}:
-        cd_tag = "CD4" if cell_type == "CD4+" else "CD8"
-        return _normalize_component(f"native_{cd_tag}_{abbrev}".strip("_"))
+    if lineage and cd_tag:
+        return _normalize_component(f"{lineage}_{cd_tag}_{abbrev}".strip("_"))
+    if lineage:
+        return _normalize_component(f"{lineage}_{abbrev}".strip("_"))
 
     if cell_type and subset:
         return _normalize_component(f"{cell_type}_{subset}")

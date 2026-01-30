@@ -30,7 +30,7 @@ from pipeline_helpers import (
 # ============================================================================
 
 BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
-SAMPLES_TO_PROCESS = [1, 2, 3]  # Process all available samples
+SAMPLES_TO_PROCESS = [1]  # Process all available samples
 
 # Optional per-sample image filtering. Define image numbers as ints.
 # Examples:

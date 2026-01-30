@@ -108,7 +108,7 @@ def plot_cell_area_histogram(base_path, csv_file=None, output_file=None, bins=No
     plt.figure(figsize=(8, 5))
     plt.hist(data, bins=bins, color="#2a6f97", edgecolor="#1b3b5a")
     plt.title("Cell Area Histogram")
-    plt.xlabel("Area (pixels)")
+    plt.xlabel("Area (um^2)")
     plt.ylabel("Count")
     plt.grid(axis='y', alpha=0.3, linestyle='--')
     plt.tight_layout()

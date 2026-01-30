@@ -309,7 +309,7 @@ def combine_all_samples(base_path, sample_folders, output_file, verbose=True):
                 plt.figure(figsize=(8, 5))
                 plt.hist(area_data, bins=AREA_HISTOGRAM_BINS, color="#2a6f97", edgecolor="#1b3b5a")
                 plt.title("Cell Area Histogram")
-                plt.xlabel("Area (pixels)")
+                plt.xlabel("Area (um^2)")
                 plt.ylabel("Count")
                 plt.tight_layout()
 

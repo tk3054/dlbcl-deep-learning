@@ -37,7 +37,7 @@ THRESHOLDS = {
     'cd4': 260,      # CD4-PerCP
     'cd45ra': 120,   # CD45RA (uses SparkViolet channel; plots label it as PacBlue)
     'ccr7': 114,     # CCR7-PE
-    # 'cd19car': 430,  # CD19CAR-AF647
+    'cd19car': 430,  # CD19CAR-AF647
 }
 
 # Which CD45RA channel to use? Options: 'af647', 'sparkviolet', 'average', 'max'
@@ -56,24 +56,21 @@ def get_cd45ra_value(row, mode='average'):
     """Get CD45RA value based on mode (average, max, af647, or sparkviolet)"""
 
     # Check which CD45RA channels exist
-    has_af647_median = 'cd45ra_af647_median' in row.index
     has_af647_mean = 'cd45ra_af647_mean' in row.index
-    has_sparkviolet_median = 'cd45ra_sparkviolet_median' in row.index
     has_sparkviolet_mean = 'cd45ra_sparkviolet_mean' in row.index
 
-    # Get available values (prefer median, fallback to mean)
+    # Get available values (mean only)
     af647_val = None
     sparkviolet_val = None
 
-    if has_af647_median:
-        af647_val = row['cd45ra_af647_median']
-    elif has_af647_mean:
+    if has_af647_mean:
         af647_val = row['cd45ra_af647_mean']
 
-    if has_sparkviolet_median:
-        sparkviolet_val = row['cd45ra_sparkviolet_median']
-    elif has_sparkviolet_mean:
+    if has_sparkviolet_mean:
         sparkviolet_val = row['cd45ra_sparkviolet_mean']
+
+    if not has_af647_mean and not has_sparkviolet_mean:
+        raise KeyError("Missing CD45RA mean columns: expected cd45ra_af647_mean or cd45ra_sparkviolet_mean")
 
     # Handle different modes
     if mode == 'af647':
@@ -131,16 +128,17 @@ def classify_cell(row, thresholds):
     Returns:
         Dict with classification results
     """
-    # Get marker values (prefer median, fallback to mean)
-    cd4 = row['cd4_median'] if 'cd4_median' in row.index else row['cd4_mean']
+    # Get marker values (mean only)
+    if 'cd4_mean' not in row.index:
+        raise KeyError("Missing cd4_mean column")
+    if 'ccr7_mean' not in row.index:
+        raise KeyError("Missing ccr7_mean column")
+    cd4 = row['cd4_mean']
     cd45ra = get_cd45ra_value(row, CD45RA_CHANNEL_MODE)
-    ccr7 = row['ccr7_median'] if 'ccr7_median' in row.index else row['ccr7_mean']
-    if 'cd19car_median' in row.index:
-        cd19car = row['cd19car_median']
-    elif 'cd19car_mean' in row.index:
-        cd19car = row['cd19car_mean']
-    else:
-        cd19car = None
+    ccr7 = row['ccr7_mean']
+    if 'cd19car_mean' not in row.index:
+        raise KeyError("Missing cd19car_mean column")
+    cd19car = row['cd19car_mean']
 
     # Determine positivity
     is_cd4_pos = cd4 > thresholds['cd4']
@@ -155,27 +153,16 @@ def classify_cell(row, thresholds):
     if is_cd45ra_pos and is_ccr7_pos:
         memory_subset = "Naive"
     elif not is_cd45ra_pos and is_ccr7_pos:
-        memory_subset = "Central Memory (TCM)"
+        memory_subset = "CM"
     elif not is_cd45ra_pos and not is_ccr7_pos:
-        memory_subset = "Effector Memory (TEM)"
+        memory_subset = "EM"
     elif is_cd45ra_pos and not is_ccr7_pos:
-        memory_subset = "Terminal Effector (TEMRA)"
+        memory_subset = "Effector"
     else:
         memory_subset = "Unclassified"
 
-    # Classification - CAR-T cells take priority
-    if is_car_pos:
-        cell_type = "CAR-T"
-        if is_cd4_pos:
-            subset = f"CAR-T CD4+ {memory_subset}"
-        else:
-            subset = f"CAR-T CD8+ {memory_subset}"
-    elif not is_cd4_pos:
-        cell_type = "CD8+"
-        subset = f"CD8+ {memory_subset}"
-    else:
-        cell_type = "CD4+"
-        subset = f"CD4+ {memory_subset}"
+    cell_type = "CD4+" if is_cd4_pos else "CD8+"
+    subset = memory_subset
 
     return {
         'cd4_positive': is_cd4_pos,
