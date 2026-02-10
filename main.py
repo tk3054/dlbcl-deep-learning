@@ -29,8 +29,13 @@ from pipeline_helpers import (
 # CONFIGURATION - EDIT THESE
 # ============================================================================
 
+<<<<<<< HEAD
 BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
 SAMPLES_TO_PROCESS = [1]  # Process all available samples
+=======
+BASE_PATH = '/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/'
+SAMPLES_TO_PROCESS = [1, 2, 3]  # Process all available samples
+>>>>>>> c9c0600... made some minor edits to the paths in the files to run the pipeline
 
 # Optional per-sample image filtering. Define image numbers as ints.
 # Examples:

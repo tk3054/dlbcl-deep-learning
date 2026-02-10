@@ -16,12 +16,14 @@ from pathlib import Path
 import sys
 
 # Import BASE_PATH from main.py
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 try:
-    from main import BASE_PATH
+   from main import BASE_PATH
 except ImportError:
-    # Fallback if main.py is not available
-    BASE_PATH = "/Users/taeeonkong/Desktop/113614(FITC-500ms)"
+    #Fallback if main.py is not available 
+    BASE_PATH = Path("/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/DLBCL_processed1/01-16-2026 DLBCL 109317")
+
 
 # ============================================================================
 # CONFIGURATION - EDIT THESE

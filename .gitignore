@@ -1,41 +1,24 @@
 # Python
 __pycache__/
 *.py[cod]
-*$py.class
+*.pyd
 *.so
-.Python
-env/
-venv/
-.venv/
 *.egg-info/
-dist/
-build/
+.eggs/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
 
 # Jupyter
 .ipynb_checkpoints/
-*.ipynb_checkpoints
 
-# macOS
+# Logs / crash dumps
+*.log
+hs_err_pid*.log
+
+# OS
 .DS_Store
-.AppleDouble
-.LSOverride
-
-# Data files
-*.tif
-*.tiff
-*.jpg
-*.jpeg
-*.png
-*.csv
-raw_crops/
-raw_crops_padded/
-padded_cells/
-cell_rois/
-original_image.tif
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~

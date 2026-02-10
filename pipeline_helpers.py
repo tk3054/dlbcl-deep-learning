@@ -33,7 +33,7 @@ def suppress_output():
             sys.stderr = old_stderr
 
 
-def prepare_run(base_path: str, samples_to_process: list[int]):
+def prepare_run(base_path: str, samples_to_process: list[int], ij_instance=None):
     """Preflight: validate base path, gather samples, and initialize ImageJ."""
     base_path_obj = Path(base_path)
 

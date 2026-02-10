@@ -8,8 +8,12 @@ Usage:
     (Edit RAW_BASE_PATH below to point to the raw dataset root)
 """
 
+
+
 import sys
 import shutil
+import imagej
+import threading
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 from process_single_image import run_pipeline, PARAMS
@@ -28,16 +32,41 @@ from pipeline_helpers import (
 )
 
 
+class ImageJManager:
+    _instance = None
+    
+    @classmethod
+    def get_instance(cls, mode='headless'):
+        """Get the singleton ImageJ instance"""
+        if cls._instance is None:
+            print("🔄 Initializing ImageJ (one-time setup)...")
+            try:
+                # Try local Fiji first
+                import os
+                fiji_path = '/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/Fiji.app'
+                if os.path.exists(fiji_path):
+                    print(f"  Using local Fiji at: {fiji_path}")
+                    cls._instance = imagej.init(fiji_path, mode=mode)
+                else:
+                    print("  Downloading Fiji (may take a few minutes)...")
+                    cls._instance = imagej.init('sc.fiji:fiji', mode=mode)
+                
+                print(f"✅ ImageJ {cls._instance.getVersion()} ready")
+            except Exception as e:
+                print(f"❌ Failed to initialize ImageJ: {e}")
+                raise
+        return cls._instance
+
 # ============================================================================
 # CONFIGURATION - EDIT THESE
 # ============================================================================
 
 # Relative to the working directory when you run the script (e.g., repo root).
 RAW_BASE_PATHS = [
-    '../DLBCL/Non-responder',
-    '../DLBCL/Responder',
+    #'/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/Non-responder',
+    '/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/Responder',
 ]
-PROCESSED_BASE_NAME = 'DLBCL_processed'
+PROCESSED_BASE_NAME = 'DLBCL-edge'
 COPY_RAW_TO_PROCESSED = True
 
 # Leave empty to process all samples found for each patient.
@@ -104,7 +133,7 @@ MASTER_COLUMN_TOGGLES = {
 }
 
 # Edge softening comparison
-GENERATE_EDGE_COMPARISONS = False  # DISABLED: Generate edge softening comparison images
+GENERATE_EDGE_COMPARISONS = True # DISABLED: Generate edge softening comparison images
 NUM_CELLS_TO_COMPARE = 5  # Number of cells per image to compare
 
 # File names for images for each channel. These must match the names in the folder. 
@@ -194,6 +223,7 @@ def run_patient_pipeline(base_path: str):
 
     for sample_idx, sample_folder in enumerate(sample_folders, 1):
         sample_path = base_path_obj / sample_folder
+
 
         image_folders = [item.name for item in sample_path.iterdir() if item.is_dir()]
         # Sort numerically if all digits, otherwise alphabetically (numeric first)
