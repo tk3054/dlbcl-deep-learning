@@ -284,6 +284,37 @@ def run_pipeline(sample_folder, image_number, base_path,
         )
         results['raw_crops'] = result_raw_crops
 
+        # STEP 6b: Create ROI-Masked Raw Crops for CCR7
+        result_raw_crops_ccr7 = make_raw_crops.make_raw_crops(
+            sample_folder=sample_folder,
+            image_number=image_number,
+            base_path=base_path,
+            source_image=channel_config.get('ccr7', 'CCR7-PE.tif'),
+            roi_dir_name=roi_dir_name,
+            output_dir_name="raw_ccr7",
+            background="transparent",
+            verbose=False
+        )
+        results['raw_crops_ccr7'] = result_raw_crops_ccr7
+
+        # STEP 6c: Create ROI-Masked Raw Crops for CD45RA
+        cd45ra_source = (
+            channel_config.get('cd45ra_sparkviolet')
+            or channel_config.get('cd45ra_PacBlue')
+            or 'CD45RA-PacBlue.tif'
+        )
+        result_raw_crops_cd45ra = make_raw_crops.make_raw_crops(
+            sample_folder=sample_folder,
+            image_number=image_number,
+            base_path=base_path,
+            source_image=cd45ra_source,
+            roi_dir_name=roi_dir_name,
+            output_dir_name="raw_cd45ra",
+            background="transparent",
+            verbose=False
+        )
+        results['raw_crops_cd45ra'] = result_raw_crops_cd45ra
+
         result_padded = pad_raw_crops.pad_masked_cells(
             sample_folder=sample_folder,
             image_number=image_number,

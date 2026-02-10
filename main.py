@@ -41,7 +41,7 @@ SAMPLES_TO_PROCESS = [1, 2, 3]  # Process all available samples
 # Examples:
 #   {1: [5, 13]}  → run images 5 & 13 for sample1 only
 # 
-# Leave empty, if you don't want to use filtering. 
+# Leave empty, if you don't want to use filtering.
 IMAGES_TO_PROCESS = {}
 
 # Exporting named cell images into the patient folder (copied from padded_cells)
