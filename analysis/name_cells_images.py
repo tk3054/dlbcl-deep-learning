@@ -194,6 +194,7 @@ def name_cells(base_path, verbose=True):
             - 'num_renamed': Number of files renamed
             - 'renames': List of (old_name, new_name) tuples
     """
+    
     response = detect_response_label(base_path)
     experiment_prefix = detect_experiment_prefix(base_path)
     input_csv = NAME_CELLS_INPUT_CSV
