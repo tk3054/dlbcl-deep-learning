@@ -1,20 +1,23 @@
 #!/usr/bin/env python3
 """
-Create raw crops for additional channels using existing ROI masks.
+Create padded per-cell crops for additional channels using existing ROI masks.
 
 Edit the CONFIG section below, then run:
-    python segmentation/three_channel_raw_crops.py
+    python segmentation/three_channel_padded.py
 """
 
 from pathlib import Path
 import sys
+
+import cv2
+from skimage import io
 
 # Allow running this script directly by adding repo root to sys.path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from process_image.make_raw_crops import make_raw_crops
+from process_image.pad_raw_crops import extract_masked_cell, pad_to_square
 from utils.config_helpers import (
     extract_sample_number,
     filter_image_folders,
@@ -26,12 +29,11 @@ from utils.config_helpers import (
 # CONFIGURATION - EDIT THESE
 # ============================================================================
 BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
-SAMPLES_TO_PROCESS = [1]  # Leave empty to process all samples
+SAMPLES_TO_PROCESS = []  # Leave empty to process all samples
 
 # Optional per-sample image filtering. Define image numbers as ints.
 # Examples:
-#   {1: [5, 13]}  → run images 5 & 13 for sample1 only
-# Leave empty, if you don't want to use filtering.
+#   {1: [5, 13]}  -> run images 5 & 13 for sample1 only
 IMAGES_TO_PROCESS = {}
 
 # Channel filenames in the image folder
@@ -42,12 +44,11 @@ CD45RA_FILENAME = "CD45RA-PacBlue.tif"
 ROI_DIR_NAME = "cell_rois"
 
 # Output folders (created inside <base>/<sample>/<image_number>/)
-OUTPUT_DIR_CCR7 = "raw_ccr7"
-OUTPUT_DIR_CD45RA = "raw_cd45ra"
+OUTPUT_DIR_CCR7 = "padded_ccr7"
+OUTPUT_DIR_CD45RA = "padded_cd45ra"
 
-# Crop mode: "original", "white", "black", or "transparent"
-# "original" keeps pixel intensities exactly as in source TIFF within ROI bbox.
-BACKGROUND = "original"
+# Output size
+TARGET_SIZE = 224
 
 
 def _pick_existing(base_dir: Path, candidates):
@@ -71,6 +72,13 @@ def _discover_images(sample_path: Path):
     return sorted(image_folders, key=lambda x: (not x.isdigit(), int(x) if x.isdigit() else x))
 
 
+def _load_grayscale(path: Path):
+    image = io.imread(path)
+    if len(image.shape) == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    return image
+
+
 def _compact_error(message: str) -> str:
     # Convert messages like "X not found: /full/path" -> "X not found"
     if ": " in message:
@@ -80,6 +88,67 @@ def _compact_error(message: str) -> str:
     return message
 
 
+def _process_channel(
+    base_dir: Path,
+    source_filename: str,
+    roi_dir_name: str,
+    output_dir_name: str,
+    target_size: int,
+):
+    roi_dir = base_dir / roi_dir_name
+    source_path = base_dir / source_filename
+    output_dir = base_dir / output_dir_name
+
+    if not roi_dir.exists():
+        return {
+            "success": False,
+            "error": f"ROI directory not found: {roi_dir}",
+            "num_padded": 0,
+            "output_dir": str(output_dir),
+        }
+
+    if not source_path.exists():
+        return {
+            "success": False,
+            "error": f"Source image not found: {source_path}",
+            "num_padded": 0,
+            "output_dir": str(output_dir),
+        }
+
+    roi_files = sorted(roi_dir.glob("*.tif"))
+    if not roi_files:
+        return {
+            "success": False,
+            "error": f"No ROI masks found in: {roi_dir}",
+            "num_padded": 0,
+            "output_dir": str(output_dir),
+        }
+
+    output_dir.mkdir(exist_ok=True)
+    source_image = _load_grayscale(source_path)
+
+    success_count = 0
+    for roi_file in roi_files:
+        roi_mask = _load_grayscale(roi_file)
+        masked_cell, _ = extract_masked_cell(source_image, roi_mask)  # non-cell pixels -> 0
+        if masked_cell is None:
+            continue
+
+        padded = pad_to_square(masked_cell, target_size)  # pad with 0
+        if padded is None:
+            continue
+
+        output_name = f"{roi_file.stem}_padded{roi_file.suffix}"
+        io.imsave(output_dir / output_name, padded)
+        success_count += 1
+
+    return {
+        "success": True,
+        "num_padded": success_count,
+        "output_dir": str(output_dir),
+    }
+
+
 def main():
     base_path = Path(BASE_PATH)
     if not base_path.exists():
@@ -87,9 +156,7 @@ def main():
 
     samples = _discover_samples(base_path)
     if SAMPLES_TO_PROCESS:
-        samples = [
-            s for s in samples if extract_sample_number(s) in SAMPLES_TO_PROCESS
-        ]
+        samples = [s for s in samples if extract_sample_number(s) in SAMPLES_TO_PROCESS]
 
     if not samples:
         raise RuntimeError(f"No sample folders found in {BASE_PATH}")
@@ -138,26 +205,20 @@ def main():
             print(f"[{idx}/{total_jobs}] FAIL {job_label} - {error}")
             continue
 
-        result_ccr7 = make_raw_crops(
-            sample_folder=sample_folder,
-            image_number=image_number,
-            base_path=BASE_PATH,
-            source_image=ccr7_source,
+        result_ccr7 = _process_channel(
+            base_dir=base_dir,
+            source_filename=ccr7_source,
             roi_dir_name=ROI_DIR_NAME,
             output_dir_name=OUTPUT_DIR_CCR7,
-            background=BACKGROUND,
-            verbose=False,
+            target_size=TARGET_SIZE,
         )
 
-        result_cd45ra = make_raw_crops(
-            sample_folder=sample_folder,
-            image_number=image_number,
-            base_path=BASE_PATH,
-            source_image=cd45ra_source,
+        result_cd45ra = _process_channel(
+            base_dir=base_dir,
+            source_filename=cd45ra_source,
             roi_dir_name=ROI_DIR_NAME,
             output_dir_name=OUTPUT_DIR_CD45RA,
-            background=BACKGROUND,
-            verbose=False,
+            target_size=TARGET_SIZE,
         )
 
         image_errors = []

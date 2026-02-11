@@ -216,10 +216,6 @@ def pad_masked_cells(sample_folder, image_number, base_path, target_size=224, ve
                 print(f"  WARNING: Skipping invalid padded result: {roi_file.name}")
             continue
 
-        # Normalize if needed
-        if padded.dtype != np.uint8:
-            padded = cv2.normalize(padded, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-
         # Save padded image with suffix
         output_name = f"{roi_file.stem}_padded{roi_file.suffix}"
         output_path = os.path.join(output_dir, output_name)
@@ -305,10 +301,6 @@ def pad_masked_cells_standalone():
         if padded is None:
             print(f"WARNING: Skipping invalid padded result: {roi_file.name}")
             continue
-
-        # Normalize if needed
-        if padded.dtype != np.uint8:
-            padded = cv2.normalize(padded, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
         # Save padded image
         output_path = os.path.join(OUTPUT_DIR, roi_file.name)

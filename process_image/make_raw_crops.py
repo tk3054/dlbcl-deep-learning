@@ -5,7 +5,7 @@ Create raw (unpadded, unmasked) crops using ROI masks for bounding boxes.
 
 from pathlib import Path
 import numpy as np
-from PIL import Image
+import tifffile
 
 
 def make_raw_crops(sample_folder, image_number, base_path,
@@ -24,7 +24,8 @@ def make_raw_crops(sample_folder, image_number, base_path,
         source_image: Source image filename (default: "Actin-FITC.tif")
         roi_dir_name: ROI directory name (default: "cell_rois")
         output_dir_name: Output directory name (default: "raw_crops")
-        background: Background for non-cell pixels ("white", "black", or "transparent")
+        background: Background mode for non-cell pixels
+            ("white", "black", "transparent", or "original")
         verbose: Print progress messages
 
     Returns:
@@ -57,7 +58,9 @@ def make_raw_crops(sample_folder, image_number, base_path,
 
     output_dir.mkdir(exist_ok=True)
 
-    source_img = np.array(Image.open(source_path))
+    source_img = tifffile.imread(source_path)
+    if source_img.ndim > 3:
+        source_img = np.squeeze(source_img)
     roi_files = sorted(roi_dir.glob("*.tif"))
 
     if verbose:
@@ -65,7 +68,11 @@ def make_raw_crops(sample_folder, image_number, base_path,
 
     extracted_count = 0
     for roi_file in roi_files:
-        roi_mask = np.array(Image.open(roi_file).convert('L'))
+        roi_mask = tifffile.imread(roi_file)
+        if roi_mask.ndim > 2:
+            roi_mask = np.squeeze(roi_mask)
+        if roi_mask.ndim == 3:
+            roi_mask = roi_mask[..., 0]
         coords = np.where(roi_mask > 0)
 
         if len(coords[0]) == 0:
@@ -79,23 +86,26 @@ def make_raw_crops(sample_folder, image_number, base_path,
         cropped_img = source_img[y_min:y_max, x_min:x_max]
         cropped_mask = roi_mask[y_min:y_max, x_min:x_max] > 0
 
-        if background == "transparent":
-            # For transparency, write RGBA with alpha from the mask
-            if len(cropped_img.shape) == 2:
-                rgb_crop = np.stack([cropped_img] * 3, axis=-1)
+        if background == "original":
+            # Exact bounding-box crop with original pixel values untouched.
+            output_arr = cropped_img
+        elif background == "transparent":
+            # Keep grayscale sources single-channel so ImageJ does not split RGB.
+            if len(cropped_img.shape) == 2 or (len(cropped_img.shape) == 3 and cropped_img.shape[2] == 1):
+                masked_crop = np.zeros_like(cropped_img)
+                masked_crop[cropped_mask] = cropped_img[cropped_mask]
+                output_arr = masked_crop
             else:
-                rgb_crop = cropped_img
+                # For true color sources, keep RGB values and add alpha.
+                rgb_crop = cropped_img[:, :, :3].copy()
+                rgb_crop[~cropped_mask] = 0
 
-            if rgb_crop.dtype != np.uint8:
-                img_min, img_max = rgb_crop.min(), rgb_crop.max()
-                if img_max > img_min:
-                    rgb_crop = ((rgb_crop.astype(float) - img_min) / (img_max - img_min) * 255).astype(np.uint8)
+                if np.issubdtype(rgb_crop.dtype, np.integer):
+                    alpha_max = np.iinfo(rgb_crop.dtype).max
                 else:
-                    rgb_crop = np.zeros_like(rgb_crop, dtype=np.uint8)
-
-            alpha = (cropped_mask.astype(np.uint8) * 255)
-            rgba = np.dstack([rgb_crop, alpha])
-            output_img = Image.fromarray(rgba, mode="RGBA")
+                    alpha_max = 1.0
+                alpha = np.where(cropped_mask, alpha_max, 0).astype(rgb_crop.dtype)
+                output_arr = np.dstack([rgb_crop, alpha])
         else:
             if background == "white":
                 if np.issubdtype(cropped_img.dtype, np.integer):
@@ -107,11 +117,11 @@ def make_raw_crops(sample_folder, image_number, base_path,
 
             masked_crop = np.full_like(cropped_img, bg_value)
             masked_crop[cropped_mask] = cropped_img[cropped_mask]
-            output_img = Image.fromarray(masked_crop)
+            output_arr = masked_crop
 
         output_filename = roi_file.stem + "_raw.tif"
         output_path = output_dir / output_filename
-        output_img.save(output_path)
+        tifffile.imwrite(output_path, output_arr)
         extracted_count += 1
 
     if verbose:
@@ -135,7 +145,7 @@ if __name__ == "__main__":
     parser.add_argument("--roi-dir-name", default="cell_rois", help="ROI directory name")
     parser.add_argument("--output-dir-name", default="raw_crops", help="Output directory name")
     parser.add_argument("--background", default="white",
-                        choices=["white", "black", "transparent"],
+                        choices=["white", "black", "transparent", "original"],
                         help="Background for non-cell pixels")
     parser.add_argument("--quiet", action="store_true", help="Disable verbose output")
     args = parser.parse_args()

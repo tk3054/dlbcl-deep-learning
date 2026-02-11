@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run second_segmentation (venv)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/segmentation/second_segmentation.py",
+      "console": "integratedTerminal",
+      "python": "/Users/taeeonkong/Desktop/DL Project/dlbcl-deep-learning/.venv/bin/python"
+    }
+  ]
+}
