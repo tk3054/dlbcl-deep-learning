@@ -27,7 +27,13 @@ from utils.image_iterator import (
 # ============================================================================
 # CONFIGURATION - EDIT THESE
 # ============================================================================
-BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
+# If SINGLE_PATIENT_MODE=True, set TARGET_PATH to one patient folder:
+#   .../non-responder/01-03-2026 DLBCL 109241
+# If SINGLE_PATIENT_MODE=False, set TARGET_PATH to a parent folder containing
+# multiple patient folders:
+#   .../non-responder
+TARGET_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
+SINGLE_PATIENT_MODE = True
 SAMPLES_TO_PROCESS = []  # Leave empty to process all samples
 
 # Optional per-sample image filtering. Define image numbers as ints.
@@ -54,6 +60,35 @@ TARGET_SIZE = 224
 
 # If True, prompt to choose a .tif when automatic matching fails.
 INTERACTIVE_FILENAME_PROMPT = True
+
+
+def _extract_patient_id_from_name(name: str):
+    for token in name.replace("-", " ").split():
+        if token.isdigit() and len(token) == 6:
+            return token
+    return None
+
+
+def _discover_patient_roots(target_path: Path, single_patient_mode: bool):
+    roots = []
+    candidate = target_path.resolve()
+    if not candidate.exists():
+        return roots
+
+    if single_patient_mode:
+        if candidate.is_dir() and "DLBCL" in candidate.name:
+            roots.append(candidate)
+        return roots
+
+    # Parent-folder mode: collect DLBCL child folders.
+    if candidate.is_dir():
+        for d in sorted(candidate.iterdir()):
+            if not d.is_dir():
+                continue
+            if "DLBCL" in d.name and _extract_patient_id_from_name(d.name):
+                roots.append(d)
+
+    return roots
 
 
 def _load_grayscale(path: Path):
@@ -134,119 +169,128 @@ def _process_channel(
 
 
 def main():
-    base_path = Path(BASE_PATH)
-    if not base_path.exists():
-        raise FileNotFoundError(f"Base path not found: {BASE_PATH}")
+    patient_roots = _discover_patient_roots(Path(TARGET_PATH), SINGLE_PATIENT_MODE)
+    if not patient_roots:
+        mode = "single-patient" if SINGLE_PATIENT_MODE else "parent-folder"
+        raise RuntimeError(f"No patient folders found in {TARGET_PATH} ({mode} mode).")
 
-    all_jobs = collect_image_jobs(
-        base_path=base_path,
-        samples_to_process=SAMPLES_TO_PROCESS,
-        images_to_process=IMAGES_TO_PROCESS,
-        announce_filters=False,
-    )
+    print(f"Patient folders: {len(patient_roots)}")
+    for p in patient_roots:
+        print(f"  - {p}")
 
-    total_jobs = len(all_jobs)
-    if total_jobs == 0:
-        raise RuntimeError("No image folders matched your filters.")
+    grand_total_jobs = 0
+    grand_success = 0
+    grand_failures = []
+    grand_actin = 0
+    grand_ccr7 = 0
+    grand_cd45ra = 0
 
-    print(f"Processing {total_jobs} images...")
-
-    success_count = 0
-    failures = []
-    total_actin_padded = 0
-    total_ccr7_padded = 0
-    total_cd45ra_padded = 0
-
-    for idx, job in enumerate(all_jobs, start=1):
-        job_label = job.label
-        base_dir = job.image_path
-
-        resolved = resolve_channel_filenames(
-            image_dir=job.image_path,
-            configured_map={
-                "actin": ACTIN_FILENAME,
-                "ccr7": CCR7_FILENAME,
-                "cd45ra": CD45RA_FILENAME,
-            },
-            interactive_prompt=INTERACTIVE_FILENAME_PROMPT,
-            job_label=job.label,
+    for patient_root in patient_roots:
+        all_jobs = collect_image_jobs(
+            base_path=patient_root,
+            samples_to_process=SAMPLES_TO_PROCESS,
+            images_to_process=IMAGES_TO_PROCESS,
+            announce_filters=False,
         )
 
-        actin_source = resolved.get("actin")
-        ccr7_source = resolved.get("ccr7")
-        cd45ra_source = resolved.get("cd45ra")
-
-        if not actin_source:
-            error = "Actin image not found"
-            failures.append((job_label, error))
-            print(f"[{idx}/{total_jobs}] FAIL {job_label} - {error}")
+        total_jobs = len(all_jobs)
+        if total_jobs == 0:
+            print(f"\nSkipping {patient_root}: no image folders matched filters.")
             continue
 
-        if not ccr7_source:
-            error = "CCR7 image not found"
-            failures.append((job_label, error))
-            print(f"[{idx}/{total_jobs}] FAIL {job_label} - {error}")
-            continue
+        print(f"\nProcessing {total_jobs} images in {patient_root.name}...")
+        grand_total_jobs += total_jobs
 
-        if not cd45ra_source:
-            error = "CD45RA image not found"
-            failures.append((job_label, error))
-            print(f"[{idx}/{total_jobs}] FAIL {job_label} - {error}")
-            continue
+        for idx, job in enumerate(all_jobs, start=1):
+            job_label = f"{patient_root.name}/{job.label}"
+            base_dir = job.image_path
 
-        result_actin = _process_channel(
-            base_dir=base_dir,
-            source_filename=actin_source,
-            roi_dir_name=ROI_DIR_NAME,
-            output_dir_name=OUTPUT_DIR_ACTIN,
-            target_size=TARGET_SIZE,
-        )
+            resolved = resolve_channel_filenames(
+                image_dir=job.image_path,
+                configured_map={
+                    "actin": ACTIN_FILENAME,
+                    "ccr7": CCR7_FILENAME,
+                    "cd45ra": CD45RA_FILENAME,
+                },
+                interactive_prompt=INTERACTIVE_FILENAME_PROMPT,
+                job_label=job.label,
+            )
 
-        result_ccr7 = _process_channel(
-            base_dir=base_dir,
-            source_filename=ccr7_source,
-            roi_dir_name=ROI_DIR_NAME,
-            output_dir_name=OUTPUT_DIR_CCR7,
-            target_size=TARGET_SIZE,
-        )
+            actin_source = resolved.get("actin")
+            ccr7_source = resolved.get("ccr7")
+            cd45ra_source = resolved.get("cd45ra")
 
-        result_cd45ra = _process_channel(
-            base_dir=base_dir,
-            source_filename=cd45ra_source,
-            roi_dir_name=ROI_DIR_NAME,
-            output_dir_name=OUTPUT_DIR_CD45RA,
-            target_size=TARGET_SIZE,
-        )
+            if not actin_source:
+                error = "Actin image not found"
+                grand_failures.append((job_label, error))
+                print(f"[{idx}/{total_jobs}] FAIL {job_label} - {error}")
+                continue
 
-        image_errors = []
-        if not result_actin["success"]:
-            image_errors.append(f"Actin: {_compact_error(result_actin['error'])}")
-        if not result_ccr7["success"]:
-            image_errors.append(f"CCR7: {_compact_error(result_ccr7['error'])}")
-        if not result_cd45ra["success"]:
-            image_errors.append(f"CD45RA: {_compact_error(result_cd45ra['error'])}")
+            if not ccr7_source:
+                error = "CCR7 image not found"
+                grand_failures.append((job_label, error))
+                print(f"[{idx}/{total_jobs}] FAIL {job_label} - {error}")
+                continue
 
-        if image_errors:
-            error = " | ".join(image_errors)
-            failures.append((job_label, error))
-            print(f"[{idx}/{total_jobs}] FAIL {job_label} - {error}")
-            continue
+            if not cd45ra_source:
+                error = "CD45RA image not found"
+                grand_failures.append((job_label, error))
+                print(f"[{idx}/{total_jobs}] FAIL {job_label} - {error}")
+                continue
 
-        success_count += 1
-        total_actin_padded += int(result_actin.get("num_padded", 0))
-        total_ccr7_padded += int(result_ccr7.get("num_padded", 0))
-        total_cd45ra_padded += int(result_cd45ra.get("num_padded", 0))
-        print(f"[{idx}/{total_jobs}] OK {job_label}")
+            result_actin = _process_channel(
+                base_dir=base_dir,
+                source_filename=actin_source,
+                roi_dir_name=ROI_DIR_NAME,
+                output_dir_name=OUTPUT_DIR_ACTIN,
+                target_size=TARGET_SIZE,
+            )
+
+            result_ccr7 = _process_channel(
+                base_dir=base_dir,
+                source_filename=ccr7_source,
+                roi_dir_name=ROI_DIR_NAME,
+                output_dir_name=OUTPUT_DIR_CCR7,
+                target_size=TARGET_SIZE,
+            )
+
+            result_cd45ra = _process_channel(
+                base_dir=base_dir,
+                source_filename=cd45ra_source,
+                roi_dir_name=ROI_DIR_NAME,
+                output_dir_name=OUTPUT_DIR_CD45RA,
+                target_size=TARGET_SIZE,
+            )
+
+            image_errors = []
+            if not result_actin["success"]:
+                image_errors.append(f"Actin: {_compact_error(result_actin['error'])}")
+            if not result_ccr7["success"]:
+                image_errors.append(f"CCR7: {_compact_error(result_ccr7['error'])}")
+            if not result_cd45ra["success"]:
+                image_errors.append(f"CD45RA: {_compact_error(result_cd45ra['error'])}")
+
+            if image_errors:
+                error = " | ".join(image_errors)
+                grand_failures.append((job_label, error))
+                print(f"[{idx}/{total_jobs}] FAIL {job_label} - {error}")
+                continue
+
+            grand_success += 1
+            grand_actin += int(result_actin.get("num_padded", 0))
+            grand_ccr7 += int(result_ccr7.get("num_padded", 0))
+            grand_cd45ra += int(result_cd45ra.get("num_padded", 0))
+            print(f"[{idx}/{total_jobs}] OK {job_label}")
 
     print("\nDone.")
-    print(f"Successful images: {success_count}/{total_jobs}")
-    print(f"Failed images: {len(failures)}")
-    print(f"Total padded segmentations (Actin): {total_actin_padded}")
-    print(f"Total padded segmentations (CCR7): {total_ccr7_padded}")
-    print(f"Total padded segmentations (CD45RA): {total_cd45ra_padded}")
-    if failures:
+    print(f"Successful images: {grand_success}/{grand_total_jobs}")
+    print(f"Failed images: {len(grand_failures)}")
+    print(f"Total padded segmentations (Actin): {grand_actin}")
+    print(f"Total padded segmentations (CCR7): {grand_ccr7}")
+    print(f"Total padded segmentations (CD45RA): {grand_cd45ra}")
+    if grand_failures:
         print("\nFailed image list:")
-        for job_label, error in failures:
+        for job_label, error in grand_failures:
             print(f"- {job_label}: {error}")
 
 
