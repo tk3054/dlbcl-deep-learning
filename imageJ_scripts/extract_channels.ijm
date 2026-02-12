@@ -51,20 +51,21 @@ numCells = roi_files.length;
 // ============================================================================
 
 function measureChannel(channel_name, channel_file, roi_files, roi_folder, preprocess) {
-    // Try to find processed file first, fall back to original
-    processed_file = "processed_" + channel_file;
-    file_to_use = "";
-
-    if (File.exists(dir + processed_file)) {
-        file_to_use = processed_file;
-        print("  Using preprocessed file: " + processed_file);
-    } else if (File.exists(dir + channel_file)) {
-        file_to_use = channel_file;
-        print("  Using original file: " + channel_file);
-    } else {
-        print("WARNING: Neither " + processed_file + " nor " + channel_file + " found, skipping");
-        return "SKIP";
+    // Require processed file only (no fallback to original)
+    required_file = channel_file;
+    if (!startsWith(channel_file, "processed_")) {
+        required_file = "processed_" + channel_file;
     }
+
+    if (!File.exists(dir + required_file)) {
+        msg = "Missing required processed channel file for " + channel_name + ": " + required_file +
+              " in " + dir + "\nPlease run channel preprocessing first.";
+        print("ERROR: " + msg);
+        exit(msg);
+    }
+
+    file_to_use = required_file;
+    print("  Using preprocessed file: " + file_to_use);
 
     open(dir + file_to_use);
     channel_id = getImageID();

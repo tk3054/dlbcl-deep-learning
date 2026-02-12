@@ -29,13 +29,8 @@ from pipeline_helpers import (
 # CONFIGURATION - EDIT THESE
 # ============================================================================
 
-<<<<<<< HEAD
 BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
 SAMPLES_TO_PROCESS = [1]  # Process all available samples
-=======
-BASE_PATH = '/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/'
-SAMPLES_TO_PROCESS = [1, 2, 3]  # Process all available samples
->>>>>>> c9c0600... made some minor edits to the paths in the files to run the pipeline
 
 # Optional per-sample image filtering. Define image numbers as ints.
 # Examples:
@@ -103,12 +98,12 @@ NUM_CELLS_TO_COMPARE = 5  # Number of cells per image to compare
 
 # File names for images for each channel. These must match the names in the folder. 
 CHANNEL_CONFIG = {
-    'actin': 'Actin-FITC.tif',
-    'cd4': 'CD4-PerCP.tif',
-    'cd45ra_PacBlue': 'CD45RA-PacBlue.tif',
-    # 'cd45ra_sparkviolet': 'CD45RA-SparkViolet.tif',
-    'cd19car': 'CD19CAR-AF647.tif',
-    'ccr7': 'CCR7-AF594.tif',
+    'actin': 'processed_Actin-FITC.tif',
+    'cd4': 'processed_CD4-PerCP.tif',
+    'cd45ra_PacBlue': 'processed_CD45RA-PacBlue.tif',
+    # 'cd45ra_sparkviolet': 'processed_CD45RA-SparkViolet.tif',
+    'cd19car': 'processed_CD19CAR-AF647.tif',
+    'ccr7': 'processed_CCR7-AF594.tif',
 }
 
 

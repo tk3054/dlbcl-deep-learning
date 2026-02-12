@@ -47,10 +47,6 @@ MIN_SIZE = 500
 MAX_SIZE = 20000           # Increased for larger cells
 
 
-# ============================================================================
-# AUTO-GENERATED PATHS (do not edit)
-# ============================================================================
-
 BASE_PATH = "/Users/taeeonkong/Desktop/Project/Summer2025/20250729_CLLSaSa/1to10"
 BASE_DIR = f"{BASE_PATH}/{SAMPLE_FOLDER}/{IMAGE_NUMBER}"
 

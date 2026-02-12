@@ -18,10 +18,9 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from process_image.pad_raw_crops import extract_masked_cell, pad_to_square
-from utils.config_helpers import (
-    extract_sample_number,
-    filter_image_folders,
-    normalize_image_filter_config,
+from utils.image_iterator import (
+    collect_image_jobs,
+    resolve_channel_filenames,
 )
 
 
@@ -37,39 +36,24 @@ SAMPLES_TO_PROCESS = []  # Leave empty to process all samples
 IMAGES_TO_PROCESS = {}
 
 # Channel filenames in the image folder
-CCR7_FILENAME = "CCR7-AF594.tif"
-CD45RA_FILENAME = "CD45RA-PacBlue.tif"
+ACTIN_FILENAME = "processed_Actin-FITC.tif"
+CCR7_FILENAME = "processed_CCR7-AF594.tif"
+CD45RA_FILENAME = "processed_CD45RA-PacBlue.tif"
 
 # ROI folder name
 ROI_DIR_NAME = "cell_rois"
 
 # Output folders (created inside <base>/<sample>/<image_number>/)
+# Keep actin output in padded_cells so downstream scripts can consume it directly.
+OUTPUT_DIR_ACTIN = "padded_cells"
 OUTPUT_DIR_CCR7 = "padded_ccr7"
 OUTPUT_DIR_CD45RA = "padded_cd45ra"
 
 # Output size
 TARGET_SIZE = 224
 
-
-def _pick_existing(base_dir: Path, candidates):
-    for name in candidates:
-        if (base_dir / name).exists():
-            return name
-    return None
-
-
-def _discover_samples(base_path: Path):
-    sample_folders = [
-        item.name
-        for item in base_path.iterdir()
-        if item.is_dir() and item.name.lower().startswith("sample")
-    ]
-    return sorted(sample_folders, key=extract_sample_number)
-
-
-def _discover_images(sample_path: Path):
-    image_folders = [item.name for item in sample_path.iterdir() if item.is_dir()]
-    return sorted(image_folders, key=lambda x: (not x.isdigit(), int(x) if x.isdigit() else x))
+# If True, prompt to choose a .tif when automatic matching fails.
+INTERACTIVE_FILENAME_PROMPT = True
 
 
 def _load_grayscale(path: Path):
@@ -139,7 +123,7 @@ def _process_channel(
             continue
 
         output_name = f"{roi_file.stem}_padded{roi_file.suffix}"
-        io.imsave(output_dir / output_name, padded)
+        io.imsave(output_dir / output_name, padded, check_contrast=False)
         success_count += 1
 
     return {
@@ -154,28 +138,12 @@ def main():
     if not base_path.exists():
         raise FileNotFoundError(f"Base path not found: {BASE_PATH}")
 
-    samples = _discover_samples(base_path)
-    if SAMPLES_TO_PROCESS:
-        samples = [s for s in samples if extract_sample_number(s) in SAMPLES_TO_PROCESS]
-
-    if not samples:
-        raise RuntimeError(f"No sample folders found in {BASE_PATH}")
-
-    image_filters, image_filters_default = normalize_image_filter_config(IMAGES_TO_PROCESS)
-
-    all_jobs = []
-    for sample_folder in samples:
-        sample_path = base_path / sample_folder
-        image_folders = _discover_images(sample_path)
-        image_folders = filter_image_folders(
-            sample_folder,
-            image_folders,
-            image_filters,
-            image_filters_default,
-            announce=False,
-        )
-        for image_number in image_folders:
-            all_jobs.append((sample_folder, image_number))
+    all_jobs = collect_image_jobs(
+        base_path=base_path,
+        samples_to_process=SAMPLES_TO_PROCESS,
+        images_to_process=IMAGES_TO_PROCESS,
+        announce_filters=False,
+    )
 
     total_jobs = len(all_jobs)
     if total_jobs == 0:
@@ -185,13 +153,34 @@ def main():
 
     success_count = 0
     failures = []
+    total_actin_padded = 0
+    total_ccr7_padded = 0
+    total_cd45ra_padded = 0
 
-    for idx, (sample_folder, image_number) in enumerate(all_jobs, start=1):
-        job_label = f"{sample_folder}/{image_number}"
-        base_dir = base_path / sample_folder / image_number
+    for idx, job in enumerate(all_jobs, start=1):
+        job_label = job.label
+        base_dir = job.image_path
 
-        ccr7_source = _pick_existing(base_dir, [CCR7_FILENAME])
-        cd45ra_source = _pick_existing(base_dir, [CD45RA_FILENAME])
+        resolved = resolve_channel_filenames(
+            image_dir=job.image_path,
+            configured_map={
+                "actin": ACTIN_FILENAME,
+                "ccr7": CCR7_FILENAME,
+                "cd45ra": CD45RA_FILENAME,
+            },
+            interactive_prompt=INTERACTIVE_FILENAME_PROMPT,
+            job_label=job.label,
+        )
+
+        actin_source = resolved.get("actin")
+        ccr7_source = resolved.get("ccr7")
+        cd45ra_source = resolved.get("cd45ra")
+
+        if not actin_source:
+            error = "Actin image not found"
+            failures.append((job_label, error))
+            print(f"[{idx}/{total_jobs}] FAIL {job_label} - {error}")
+            continue
 
         if not ccr7_source:
             error = "CCR7 image not found"
@@ -204,6 +193,14 @@ def main():
             failures.append((job_label, error))
             print(f"[{idx}/{total_jobs}] FAIL {job_label} - {error}")
             continue
+
+        result_actin = _process_channel(
+            base_dir=base_dir,
+            source_filename=actin_source,
+            roi_dir_name=ROI_DIR_NAME,
+            output_dir_name=OUTPUT_DIR_ACTIN,
+            target_size=TARGET_SIZE,
+        )
 
         result_ccr7 = _process_channel(
             base_dir=base_dir,
@@ -222,6 +219,8 @@ def main():
         )
 
         image_errors = []
+        if not result_actin["success"]:
+            image_errors.append(f"Actin: {_compact_error(result_actin['error'])}")
         if not result_ccr7["success"]:
             image_errors.append(f"CCR7: {_compact_error(result_ccr7['error'])}")
         if not result_cd45ra["success"]:
@@ -234,11 +233,17 @@ def main():
             continue
 
         success_count += 1
+        total_actin_padded += int(result_actin.get("num_padded", 0))
+        total_ccr7_padded += int(result_ccr7.get("num_padded", 0))
+        total_cd45ra_padded += int(result_cd45ra.get("num_padded", 0))
         print(f"[{idx}/{total_jobs}] OK {job_label}")
 
     print("\nDone.")
     print(f"Successful images: {success_count}/{total_jobs}")
     print(f"Failed images: {len(failures)}")
+    print(f"Total padded segmentations (Actin): {total_actin_padded}")
+    print(f"Total padded segmentations (CCR7): {total_ccr7_padded}")
+    print(f"Total padded segmentations (CD45RA): {total_cd45ra_padded}")
     if failures:
         print("\nFailed image list:")
         for job_label, error in failures:

@@ -10,6 +10,7 @@ import imagej
 import pandas as pd
 
 from utils.config_helpers import extract_sample_number
+from utils.image_iterator import resolve_channel_filenames, resolve_image_folder
 from utils.name_builder import (
     NameBuilder,
     build_patient_context,
@@ -79,49 +80,22 @@ def prompt_channel_filenames(
     channel_config: dict[str, str],
 ):
     """
-    Check channel filenames for an image folder; if a configured name is missing,
-    prompt the user to pick between the configured name and any .tif present.
+    Resolve channel filenames for an image folder.
+    Uses robust matching (processed/raw variants, case-insensitive, modifier-tolerant),
+    then interactive prompt fallback.
     """
     image_dir = base_path_obj / sample_folder / image_number
-    if not image_dir.exists():
-        return channel_config
+    resolved = resolve_channel_filenames(
+        image_dir=image_dir,
+        configured_map=channel_config,
+        interactive_prompt=True,
+        job_label=f"{sample_folder}/{image_number}",
+    )
 
-    available_tifs = sorted([p.name for p in image_dir.glob("*.tif")])
-    resolved = dict(channel_config)
-
-    for key, filename in channel_config.items():
-        expected = image_dir / filename
-        processed = image_dir / f"processed_{filename}"
-
-        if expected.exists() or processed.exists():
-            continue
-
-        if not available_tifs:
-            continue
-
-        print(f"\nChannel '{key}' file not found for {sample_folder}/{image_number}.")
-        print(f"Configured: {filename}")
-        print("Available .tif files in this folder:")
-        for idx, name in enumerate(available_tifs, start=1):
-            print(f"  {idx}. {name}")
-        print("  0. Keep configured name")
-
-        choice = input("Select a file number to use for this channel (default 0): ").strip()
-        if not choice:
-            choice = "0"
-
-        try:
-            choice_num = int(choice)
-        except ValueError:
-            choice_num = 0
-
-        if 1 <= choice_num <= len(available_tifs):
-            resolved[key] = available_tifs[choice_num - 1]
-            print(f"  → Using {resolved[key]} for channel '{key}'")
-        else:
-            print(f"  → Keeping configured filename for '{key}'")
-
-    return resolved
+    # Keep configured defaults for unresolved channels.
+    merged = dict(channel_config)
+    merged.update(resolved)
+    return merged
 
 
 def _find_cell_image_path(source_dir: Path, cell_id: int) -> Optional[Path]:
@@ -150,21 +124,7 @@ def _find_cell_image_path(source_dir: Path, cell_id: int) -> Optional[Path]:
 
 def _resolve_image_folder(sample_dir: Path, image_number: str) -> Optional[str]:
     """Resolve image folder name, supporting prefix matches like '14[large cell]'."""
-    if not sample_dir.exists():
-        return None
-    candidate = sample_dir / image_number
-    if candidate.exists():
-        return image_number
-    if image_number.isdigit():
-        for entry in sorted(sample_dir.iterdir()):
-            if not entry.is_dir():
-                continue
-            name = entry.name
-            if name.startswith(image_number):
-                next_char = name[len(image_number):len(image_number) + 1]
-                if next_char == "" or not next_char.isdigit():
-                    return name
-    return None
+    return resolve_image_folder(sample_dir, image_number)
 
 
 def _build_destination(dest_dir: Path, filename: str) -> Path:
