@@ -132,8 +132,8 @@ def _build_parser() -> argparse.ArgumentParser:
 
 if __name__ == "__main__":
     # Set your own paths/params here (direct edit mode).
-    INPUT_FOLDER = "/path/to/patient/folder"
-    OUTPUT_FOLDER = "normalized_tif"
+    INPUT_FOLDER = "/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/DLBCL_processed/01-03-2026 DLBCL 109241/formatted_actin_TESTCOPY"
+    OUTPUT_FOLDER = "/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/DLBCL_processed/01-03-2026 DLBCL 109241/formatted_actin_TESTCOPY/normalized_tif"
     HIST_BINS = 512
 
     # If INPUT_FOLDER is still the placeholder, fall back to CLI args.
