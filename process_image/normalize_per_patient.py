@@ -38,7 +38,7 @@ def normalize_tif_batch(input_folder, output_folder="normalized_tif", hist_bins=
     """
     Normalize all TIF images in a folder using one patient-wide min/max
     computed from all pixels across all images. Also writes a histogram
-    visualizing the distribution of all patient pixels.
+    visualizing the distribution of non-background (non-zero) patient pixels.
     
     Parameters:
     -----------
@@ -47,7 +47,7 @@ def normalize_tif_batch(input_folder, output_folder="normalized_tif", hist_bins=
     output_folder : str
         Output folder name
     hist_bins : int
-        Number of bins for global pixel distribution histogram.
+        Number of bins for global non-zero pixel distribution histogram.
     """
     input_path = Path(input_folder)
     if not input_path.exists() or not input_path.is_dir():
@@ -73,6 +73,7 @@ def normalize_tif_batch(input_folder, output_folder="normalized_tif", hist_bins=
 
     hist_counts = np.zeros(hist_bins, dtype=np.int64)
     hist_edges = np.linspace(patient_min, patient_max, hist_bins + 1, dtype=np.float64)
+    total_nonzero_pixels = 0
 
     print("Output format: 32-bit float (range from patient-wide raw min/max)")
     for tif_path in tqdm(tif_files, desc="Pass 2/2: normalize + histogram"):
@@ -80,8 +81,11 @@ def normalize_tif_batch(input_folder, output_folder="normalized_tif", hist_bins=
             img = tiff.imread(tif_path)
             img_float = img.astype(np.float32)
 
-            counts, _ = np.histogram(img_float.ravel(), bins=hist_edges)
-            hist_counts += counts
+            non_zero_pixels = img_float[img_float != 0]
+            if non_zero_pixels.size > 0:
+                counts, _ = np.histogram(non_zero_pixels, bins=hist_edges)
+                hist_counts += counts
+                total_nonzero_pixels += int(non_zero_pixels.size)
 
             output_array = (img_float - patient_min) / (patient_max - patient_min)
 
@@ -95,7 +99,7 @@ def normalize_tif_batch(input_folder, output_folder="normalized_tif", hist_bins=
     hist_plot_path = output_path / "patient_pixel_distribution.png"
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.stairs(hist_counts, hist_edges, linewidth=1.5)
-    ax.set_title("Patient-wide Pixel Distribution (All Images, All Pixels)")
+    ax.set_title("Patient-wide Pixel Distribution (All Images, Non-zero Pixels)")
     ax.set_xlabel("Pixel Intensity")
     ax.set_ylabel("Pixel Count")
     ax.grid(alpha=0.25)
@@ -105,6 +109,7 @@ def normalize_tif_batch(input_folder, output_folder="normalized_tif", hist_bins=
 
     print(f"\nComplete! Normalized images saved to: {output_path}")
     print(f"Distribution plot saved to: {hist_plot_path}")
+    print(f"Histogram includes {total_nonzero_pixels} non-zero pixels.")
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -126,7 +131,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--hist-bins",
         type=int,
         default=512,
-        help="Histogram bin count for the all-pixel distribution plot.",
+        help="Histogram bin count for the non-zero pixel distribution plot.",
     )
     return parser
 
