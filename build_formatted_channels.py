@@ -25,8 +25,8 @@ UID_PATTERN = re.compile(r"^(\d+)_([0-9]+)_([0-9]+)_([0-9]+)$")
 CELL_FILE_PATTERN = re.compile(r"^cell_(\d+)_padded\.[^.]+$")
 
 # Configure these for default execution.
-PATIENT_FOLDER_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
-CLEAN_CSV_PATH = "/Users/taeeonkong/Desktop/DL Project/clean_cell_list.csv"
+PATIENT_FOLDER_PATH = '/Users/taeeonkong/Desktop/DL Project/responder/01-06-2026 DLBCL 118867'
+CLEAN_CSV_PATH = "clean_cell_list.csv"
 SINGLE_PATIENT_MODE = True
 
 CHANNEL_PRESETS = {

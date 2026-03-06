@@ -17,7 +17,6 @@ from utils.config_helpers import (
     filter_image_folders,
     normalize_image_filter_config,
 )
-from compare_edge_methods import compare_multiple_cells
 from pipeline_helpers import (
     export_images_for_export,
     prepare_run,
@@ -29,8 +28,8 @@ from pipeline_helpers import (
 # CONFIGURATION - EDIT THESE
 # ============================================================================
 
-BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
-SAMPLES_TO_PROCESS = [1]  # Process all available samples
+BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/responder/01-06-2026 DLBCL 118867'
+SAMPLES_TO_PROCESS = []  # Process all available samples
 
 # Optional per-sample image filtering. Define image numbers as ints.
 # Examples:

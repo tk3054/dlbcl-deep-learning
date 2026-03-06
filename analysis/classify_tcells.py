@@ -55,22 +55,22 @@ OUTPUT_CSV = "all_samples_combined_classified.csv"
 def get_cd45ra_value(row, mode='average'):
     """Get CD45RA value based on mode (average, max, af647, or sparkviolet)"""
 
-    # Check which CD45RA channels exist
-    has_af647_mean = 'cd45ra_af647_mean' in row.index
-    has_sparkviolet_mean = 'cd45ra_sparkviolet_mean' in row.index
+    def _first_present(candidates):
+        for key in candidates:
+            if key in row.index:
+                return row[key]
+        return None
 
-    # Get available values (mean only)
-    af647_val = None
-    sparkviolet_val = None
+    # Accept historical and current column variants.
+    af647_val = _first_present(['cd45ra_af647_mean'])
+    sparkviolet_val = _first_present(['cd45ra_sparkviolet_mean', 'cd45ra_PacBlue_mean', 'cd45ra_pacblue_mean'])
+    combined_val = _first_present(['cd45ra_mean'])
 
-    if has_af647_mean:
-        af647_val = row['cd45ra_af647_mean']
-
-    if has_sparkviolet_mean:
-        sparkviolet_val = row['cd45ra_sparkviolet_mean']
-
-    if not has_af647_mean and not has_sparkviolet_mean:
-        raise KeyError("Missing CD45RA mean columns: expected cd45ra_af647_mean or cd45ra_sparkviolet_mean")
+    if af647_val is None and sparkviolet_val is None and combined_val is None:
+        raise KeyError(
+            "Missing CD45RA mean columns: expected one of "
+            "cd45ra_mean, cd45ra_af647_mean, cd45ra_sparkviolet_mean, cd45ra_PacBlue_mean"
+        )
 
     # Handle different modes
     if mode == 'af647':
@@ -78,6 +78,8 @@ def get_cd45ra_value(row, mode='average'):
             return af647_val
         elif sparkviolet_val is not None:
             return sparkviolet_val  # Fallback
+        elif combined_val is not None:
+            return combined_val
         else:
             return 0
     elif mode == 'sparkviolet':
@@ -85,6 +87,8 @@ def get_cd45ra_value(row, mode='average'):
             return sparkviolet_val
         elif af647_val is not None:
             return af647_val  # Fallback
+        elif combined_val is not None:
+            return combined_val
         else:
             return 0
     elif mode == 'average':
@@ -94,6 +98,8 @@ def get_cd45ra_value(row, mode='average'):
             return sparkviolet_val
         elif af647_val is not None:
             return af647_val
+        elif combined_val is not None:
+            return combined_val
         else:
             return 0
     elif mode == 'max':
@@ -103,6 +109,8 @@ def get_cd45ra_value(row, mode='average'):
             return sparkviolet_val
         elif af647_val is not None:
             return af647_val
+        elif combined_val is not None:
+            return combined_val
         else:
             return 0
     else:
@@ -113,6 +121,8 @@ def get_cd45ra_value(row, mode='average'):
             return sparkviolet_val
         elif af647_val is not None:
             return af647_val
+        elif combined_val is not None:
+            return combined_val
         else:
             return 0
 

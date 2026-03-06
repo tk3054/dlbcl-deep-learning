@@ -32,7 +32,7 @@ from utils.image_iterator import (
 # If SINGLE_PATIENT_MODE=False, set TARGET_PATH to a parent folder containing
 # multiple patient folders:
 #   .../non-responder
-TARGET_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
+TARGET_PATH = '/Users/taeeonkong/Desktop/DL Project/responder/01-06-2026 DLBCL 118867'
 SINGLE_PATIENT_MODE = True
 SAMPLES_TO_PROCESS = []  # Leave empty to process all samples
 

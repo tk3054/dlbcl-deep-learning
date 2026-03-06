@@ -383,6 +383,9 @@ def extract_channel_measurements(sample_folder, image_number, base_path, channel
         'cd4File = "CD4_FILE_PLACEHOLDER";',
         f'cd4File = "{channel_config.get("cd4", "CD4-PerCP.tif")}";'
     ).replace(
+        'cd45raAF647File = "CD45RA_AF647_FILE_PLACEHOLDER";',
+        f'cd45raAF647File = "{channel_config.get("cd45ra_af647", channel_config.get("cd45ra_sparkviolet", channel_config.get("cd45ra_PacBlue", "CD45RA-SparkViolet.tif")))}";'
+    ).replace(
         'cd45raSparkVioletFile = "CD45RA_SPARKVIOLET_FILE_PLACEHOLDER";',
         f'cd45raSparkVioletFile = "{channel_config.get("cd45ra_sparkviolet", channel_config.get("cd45ra_PacBlue", "CD45RA-SparkViolet.tif"))}";'
     ).replace(
