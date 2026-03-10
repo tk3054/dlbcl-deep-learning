@@ -42,6 +42,8 @@ def normalize_tif_batch(
     hist_bins=512,
     hist_output_dir=None,
     hist_filename=None,
+    post_hist_output_dir=None,
+    post_hist_filename=None,
 ):
     """
     Normalize all TIF images in a folder using one patient-wide min/max
@@ -59,7 +61,11 @@ def normalize_tif_batch(
     hist_output_dir : str | None
         Directory where the histogram PNG is written. Defaults to output_folder.
     hist_filename : str | None
-        Histogram filename. Defaults to patient_pixel_distribution.png.
+        Pre-normalization histogram filename. Defaults to patient_pixel_distribution.png.
+    post_hist_output_dir : str | None
+        Directory where the post-normalization histogram PNG is written.
+    post_hist_filename : str | None
+        Post-normalization histogram filename.
     """
     input_path = Path(input_folder)
     if not input_path.exists() or not input_path.is_dir():
@@ -70,6 +76,10 @@ def normalize_tif_batch(
     hist_dir = Path(hist_output_dir) if hist_output_dir else output_path
     hist_dir.mkdir(parents=True, exist_ok=True)
     histogram_name = hist_filename or "patient_pixel_distribution.png"
+    post_hist_dir = Path(post_hist_output_dir) if post_hist_output_dir else None
+    if post_hist_dir is not None:
+        post_hist_dir.mkdir(parents=True, exist_ok=True)
+    post_histogram_name = post_hist_filename or "patient_pixel_distribution_post_normalization.png"
 
     tif_files = _collect_tif_files(input_path)
     if not tif_files:
@@ -89,6 +99,9 @@ def normalize_tif_batch(
     hist_counts = np.zeros(hist_bins, dtype=np.int64)
     hist_edges = np.linspace(patient_min, patient_max, hist_bins + 1, dtype=np.float64)
     total_nonzero_pixels = 0
+    post_hist_counts = np.zeros(hist_bins, dtype=np.int64)
+    post_hist_edges = np.linspace(0.0, 1.0, hist_bins + 1, dtype=np.float64)
+    total_post_nonzero_pixels = 0
 
     print("Output format: 32-bit float (range from patient-wide raw min/max)")
     for tif_path in tqdm(tif_files, desc="Pass 2/2: normalize + histogram"):
@@ -103,6 +116,11 @@ def normalize_tif_batch(
                 total_nonzero_pixels += int(non_zero_pixels.size)
 
             output_array = (img_float - patient_min) / (patient_max - patient_min)
+            normalized_non_zero_pixels = output_array[output_array != 0]
+            if normalized_non_zero_pixels.size > 0:
+                post_counts, _ = np.histogram(normalized_non_zero_pixels, bins=post_hist_edges)
+                post_hist_counts += post_counts
+                total_post_nonzero_pixels += int(normalized_non_zero_pixels.size)
 
             output_filename = f"{tif_path.stem}_normalized.tif"
             output_file = output_path / output_filename
@@ -122,6 +140,20 @@ def normalize_tif_batch(
     fig.savefig(hist_plot_path, dpi=150)
     plt.close(fig)
 
+    if post_hist_dir is not None:
+        post_hist_plot_path = post_hist_dir / post_histogram_name
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.stairs(post_hist_counts, post_hist_edges, linewidth=1.5)
+        ax.set_title("Patient-wide Pixel Distribution After Normalization (Non-zero Pixels)")
+        ax.set_xlabel("Normalized Pixel Intensity")
+        ax.set_ylabel("Pixel Count")
+        ax.grid(alpha=0.25)
+        fig.tight_layout()
+        fig.savefig(post_hist_plot_path, dpi=150)
+        plt.close(fig)
+        print(f"Post-normalization distribution plot saved to: {post_hist_plot_path}")
+        print(f"Post-normalization histogram includes {total_post_nonzero_pixels} non-zero pixels.")
+
     print(f"\nComplete! Normalized images saved to: {output_path}")
     print(f"Distribution plot saved to: {hist_plot_path}")
     print(f"Histogram includes {total_nonzero_pixels} non-zero pixels.")
@@ -132,6 +164,7 @@ def normalize_dlbcl_processed_batch(
     output_folder="normalized_tif",
     hist_bins=512,
     histograms_dirname="histograms",
+    post_histograms_dirname="histograms_postNormalization",
     channel_dirs=None,
 ):
     base_path = Path(base_dir)
@@ -140,6 +173,8 @@ def normalize_dlbcl_processed_batch(
 
     hist_dir = base_path / histograms_dirname
     hist_dir.mkdir(parents=True, exist_ok=True)
+    post_hist_dir = base_path / post_histograms_dirname
+    post_hist_dir.mkdir(parents=True, exist_ok=True)
 
     selected_channel_dirs = tuple(channel_dirs or DEFAULT_CHANNEL_DIRS)
     patient_dirs = sorted(
@@ -157,6 +192,9 @@ def normalize_dlbcl_processed_batch(
                 continue
 
             hist_filename = f"{patient_dir.name}_{channel_dir_name}_patient_pixel_distribution.png"
+            post_hist_filename = (
+                f"{patient_dir.name}_{channel_dir_name}_patient_pixel_distribution_post_normalization.png"
+            )
             print(f"  Normalizing {input_dir}")
             normalize_tif_batch(
                 input_folder=input_dir,
@@ -164,6 +202,8 @@ def normalize_dlbcl_processed_batch(
                 hist_bins=hist_bins,
                 hist_output_dir=hist_dir,
                 hist_filename=hist_filename,
+                post_hist_output_dir=post_hist_dir,
+                post_hist_filename=post_hist_filename,
             )
 
 
@@ -214,6 +254,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Batch mode: histogram folder name under --batch-base-dir (default: histograms).",
     )
     parser.add_argument(
+        "--post-histograms-dirname",
+        type=str,
+        default="histograms_postNormalization",
+        help="Batch mode: post-normalization histogram folder name under --batch-base-dir.",
+    )
+    parser.add_argument(
         "--channel-dirs",
         nargs="+",
         default=list(DEFAULT_CHANNEL_DIRS),
@@ -228,6 +274,7 @@ if __name__ == "__main__":
     OUTPUT_FOLDER = "normalized_tif"
     HIST_BINS = 512
     HISTOGRAMS_DIRNAME = "histograms"
+    POST_HISTOGRAMS_DIRNAME = "histograms_postNormalization"
     CHANNEL_DIRS = list(DEFAULT_CHANNEL_DIRS)
 
     # If BATCH_BASE_DIR is set, run the whole DLBCL_processed tree without CLI args.
@@ -237,6 +284,7 @@ if __name__ == "__main__":
             output_folder=OUTPUT_FOLDER,
             hist_bins=HIST_BINS,
             histograms_dirname=HISTOGRAMS_DIRNAME,
+            post_histograms_dirname=POST_HISTOGRAMS_DIRNAME,
             channel_dirs=CHANNEL_DIRS,
         )
     # If INPUT_FOLDER is still the placeholder, fall back to CLI args.
@@ -248,6 +296,7 @@ if __name__ == "__main__":
                 output_folder=args.output_folder,
                 hist_bins=args.hist_bins,
                 histograms_dirname=args.histograms_dirname,
+                post_histograms_dirname=args.post_histograms_dirname,
                 channel_dirs=args.channel_dirs,
             )
         else:
@@ -259,6 +308,8 @@ if __name__ == "__main__":
                 hist_bins=args.hist_bins,
                 hist_output_dir=args.hist_output_dir,
                 hist_filename=args.hist_filename,
+                post_hist_output_dir=None,
+                post_hist_filename=None,
             )
     else:
         normalize_tif_batch(
