@@ -1,0 +1,2 @@
+cd "/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/DLBCL_processed"
+python3 ../dlbcl-deep-learning/process_image/normalize_per_patient.py --batch-base-dir . --output-folder normalized_tif

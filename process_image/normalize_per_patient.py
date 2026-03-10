@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from tqdm import tqdm
 
+DEFAULT_CHANNEL_DIRS = ("formatted_actin", "formatted_cd45ra", "formatted_ccr7")
+
 def _collect_tif_files(input_path: Path) -> list[Path]:
     tif_files = []
     tif_files.extend(input_path.glob("*.tif"))
@@ -34,7 +36,13 @@ def _compute_patient_min_max(tif_files: list[Path]) -> tuple[float, float]:
     return patient_min, patient_max
 
 
-def normalize_tif_batch(input_folder, output_folder="normalized_tif", hist_bins=512):
+def normalize_tif_batch(
+    input_folder,
+    output_folder="normalized_tif",
+    hist_bins=512,
+    hist_output_dir=None,
+    hist_filename=None,
+):
     """
     Normalize all TIF images in a folder using one patient-wide min/max
     computed from all pixels across all images. Also writes a histogram
@@ -48,6 +56,10 @@ def normalize_tif_batch(input_folder, output_folder="normalized_tif", hist_bins=
         Output folder name
     hist_bins : int
         Number of bins for global non-zero pixel distribution histogram.
+    hist_output_dir : str | None
+        Directory where the histogram PNG is written. Defaults to output_folder.
+    hist_filename : str | None
+        Histogram filename. Defaults to patient_pixel_distribution.png.
     """
     input_path = Path(input_folder)
     if not input_path.exists() or not input_path.is_dir():
@@ -55,6 +67,9 @@ def normalize_tif_batch(input_folder, output_folder="normalized_tif", hist_bins=
 
     output_path = input_path / output_folder
     output_path.mkdir(exist_ok=True)
+    hist_dir = Path(hist_output_dir) if hist_output_dir else output_path
+    hist_dir.mkdir(parents=True, exist_ok=True)
+    histogram_name = hist_filename or "patient_pixel_distribution.png"
 
     tif_files = _collect_tif_files(input_path)
     if not tif_files:
@@ -96,7 +111,7 @@ def normalize_tif_batch(input_folder, output_folder="normalized_tif", hist_bins=
         except Exception as e:
             print(f"\nError processing {tif_path.name}: {e}")
 
-    hist_plot_path = output_path / "patient_pixel_distribution.png"
+    hist_plot_path = hist_dir / histogram_name
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.stairs(hist_counts, hist_edges, linewidth=1.5)
     ax.set_title("Patient-wide Pixel Distribution (All Images, Non-zero Pixels)")
@@ -112,14 +127,61 @@ def normalize_tif_batch(input_folder, output_folder="normalized_tif", hist_bins=
     print(f"Histogram includes {total_nonzero_pixels} non-zero pixels.")
 
 
+def normalize_dlbcl_processed_batch(
+    base_dir,
+    output_folder="normalized_tif",
+    hist_bins=512,
+    histograms_dirname="histograms",
+    channel_dirs=None,
+):
+    base_path = Path(base_dir)
+    if not base_path.exists() or not base_path.is_dir():
+        raise ValueError(f"Base directory does not exist or is not a directory: {base_path}")
+
+    hist_dir = base_path / histograms_dirname
+    hist_dir.mkdir(parents=True, exist_ok=True)
+
+    selected_channel_dirs = tuple(channel_dirs or DEFAULT_CHANNEL_DIRS)
+    patient_dirs = sorted(
+        p for p in base_path.iterdir() if p.is_dir() and "DLBCL" in p.name
+    )
+    if not patient_dirs:
+        raise RuntimeError(f"No patient folders found under: {base_path}")
+
+    for patient_dir in patient_dirs:
+        print(f"\nProcessing patient: {patient_dir}")
+        for channel_dir_name in selected_channel_dirs:
+            input_dir = patient_dir / channel_dir_name
+            if not input_dir.is_dir():
+                print(f"  Skipping missing folder: {input_dir}")
+                continue
+
+            hist_filename = f"{patient_dir.name}_{channel_dir_name}_patient_pixel_distribution.png"
+            print(f"  Normalizing {input_dir}")
+            normalize_tif_batch(
+                input_folder=input_dir,
+                output_folder=output_folder,
+                hist_bins=hist_bins,
+                hist_output_dir=hist_dir,
+                hist_filename=hist_filename,
+            )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Normalize all TIFs in a folder using patient-wide raw min/max."
     )
     parser.add_argument(
         "input_folder",
+        nargs="?",
         type=str,
         help="Path to folder containing TIF images for one patient.",
+    )
+    parser.add_argument(
+        "--batch-base-dir",
+        type=str,
+        default=None,
+        help="Batch mode: base DLBCL_processed folder containing per-patient folders.",
     )
     parser.add_argument(
         "--output-folder",
@@ -133,6 +195,30 @@ def _build_parser() -> argparse.ArgumentParser:
         default=512,
         help="Histogram bin count for the non-zero pixel distribution plot.",
     )
+    parser.add_argument(
+        "--hist-output-dir",
+        type=str,
+        default=None,
+        help="Directory to write histogram PNGs to (default: normalized output folder).",
+    )
+    parser.add_argument(
+        "--hist-filename",
+        type=str,
+        default=None,
+        help="Histogram PNG filename (default: patient_pixel_distribution.png).",
+    )
+    parser.add_argument(
+        "--histograms-dirname",
+        type=str,
+        default="histograms",
+        help="Batch mode: histogram folder name under --batch-base-dir (default: histograms).",
+    )
+    parser.add_argument(
+        "--channel-dirs",
+        nargs="+",
+        default=list(DEFAULT_CHANNEL_DIRS),
+        help="Batch mode: patient subfolders to normalize.",
+    )
     return parser
 
 if __name__ == "__main__":
@@ -144,11 +230,24 @@ if __name__ == "__main__":
     # If INPUT_FOLDER is still the placeholder, fall back to CLI args.
     if INPUT_FOLDER == "/path/to/patient/folder":
         args = _build_parser().parse_args()
-        normalize_tif_batch(
-            input_folder=args.input_folder,
-            output_folder=args.output_folder,
-            hist_bins=args.hist_bins,
-        )
+        if args.batch_base_dir:
+            normalize_dlbcl_processed_batch(
+                base_dir=args.batch_base_dir,
+                output_folder=args.output_folder,
+                hist_bins=args.hist_bins,
+                histograms_dirname=args.histograms_dirname,
+                channel_dirs=args.channel_dirs,
+            )
+        else:
+            if not args.input_folder:
+                raise SystemExit("Provide input_folder or use --batch-base-dir.")
+            normalize_tif_batch(
+                input_folder=args.input_folder,
+                output_folder=args.output_folder,
+                hist_bins=args.hist_bins,
+                hist_output_dir=args.hist_output_dir,
+                hist_filename=args.hist_filename,
+            )
     else:
         normalize_tif_batch(
             input_folder=INPUT_FOLDER,
