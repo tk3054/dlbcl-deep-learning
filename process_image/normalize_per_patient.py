@@ -224,11 +224,23 @@ def _build_parser() -> argparse.ArgumentParser:
 if __name__ == "__main__":
     # Set your own paths/params here (direct edit mode).
     INPUT_FOLDER = "/path/to/patient/folder"
+    BATCH_BASE_DIR = "/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/DLBCL_processed"
     OUTPUT_FOLDER = "normalized_tif"
     HIST_BINS = 512
+    HISTOGRAMS_DIRNAME = "histograms"
+    CHANNEL_DIRS = list(DEFAULT_CHANNEL_DIRS)
 
+    # If BATCH_BASE_DIR is set, run the whole DLBCL_processed tree without CLI args.
+    if BATCH_BASE_DIR != "/path/to/dlbcl_processed":
+        normalize_dlbcl_processed_batch(
+            base_dir=BATCH_BASE_DIR,
+            output_folder=OUTPUT_FOLDER,
+            hist_bins=HIST_BINS,
+            histograms_dirname=HISTOGRAMS_DIRNAME,
+            channel_dirs=CHANNEL_DIRS,
+        )
     # If INPUT_FOLDER is still the placeholder, fall back to CLI args.
-    if INPUT_FOLDER == "/path/to/patient/folder":
+    elif INPUT_FOLDER == "/path/to/patient/folder":
         args = _build_parser().parse_args()
         if args.batch_base_dir:
             normalize_dlbcl_processed_batch(
