@@ -11,6 +11,7 @@ import numpy as np
 import tifffile
 from scipy.ndimage import gaussian_filter
 from tqdm import tqdm
+from utils.name_builder import extract_image_number
 
 
 DEFAULT_ROOT = Path("/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/DLBCL_processed")
@@ -73,8 +74,14 @@ def iter_sample_dirs(patient_dir):
 
 
 def iter_image_dirs(sample_dir):
-    for image_dir in sorted(sample_dir.iterdir(), key=lambda path: (not path.name.isdigit(), path.name)):
-        if image_dir.is_dir() and image_dir.name.isdigit():
+    for image_dir in sorted(
+        sample_dir.iterdir(),
+        key=lambda path: (
+            extract_image_number(path.name) is None,
+            extract_image_number(path.name) if extract_image_number(path.name) is not None else path.name,
+        ),
+    ):
+        if image_dir.is_dir() and extract_image_number(image_dir.name) is not None:
             yield image_dir
 
 
