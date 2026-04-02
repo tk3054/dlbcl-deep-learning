@@ -11,6 +11,7 @@ import numpy as np
 import tifffile
 from PIL import Image, ImageDraw, ImageOps
 from scipy.ndimage import gaussian_filter
+from tqdm import tqdm
 
 
 DEFAULT_ROOT = Path("/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/DLBCL_processed")
@@ -223,7 +224,7 @@ def process_image_dir(
         output_dir.mkdir(exist_ok=True)
 
         processed_any = False
-        for cell_index, roi_file in enumerate(roi_files, start=1):
+        for cell_index, roi_file in enumerate(tqdm(roi_files, desc="Cells", leave=False), start=1):
             roi_mask = tifffile.imread(roi_file)
             if roi_mask.ndim != 2:
                 raise ValueError(f"Expected 2D ROI mask for {roi_file.name}, got shape {roi_mask.shape}")
@@ -298,12 +299,32 @@ def main():
     if not root_dir.exists():
         raise FileNotFoundError(f"Root directory not found: {root_dir}")
 
+    patient_dirs = list(iter_patient_dirs(root_dir))
+    print("Patients discovered:", flush=True)
+    for patient_dir in patient_dirs:
+        print(f"  - {patient_dir.name}", flush=True)
+        sample_dirs = list(iter_sample_dirs(patient_dir))
+        if sample_dirs:
+            print("    Samples discovered:", flush=True)
+            for sample_dir in sample_dirs:
+                image_dirs = list(iter_image_dirs(sample_dir))
+                image_names = ", ".join(image_dir.name for image_dir in image_dirs) or "(none)"
+                print(f"      - {sample_dir.name}: images [{image_names}]", flush=True)
+        else:
+            print("    Samples discovered: (none)", flush=True)
+
     total_images = 0
     processed_images = 0
 
-    for patient_dir in iter_patient_dirs(root_dir):
-        for sample_dir in iter_sample_dirs(patient_dir):
-            for image_dir in iter_image_dirs(sample_dir):
+    for patient_dir in patient_dirs:
+        sample_dirs = list(iter_sample_dirs(patient_dir))
+        for sample_dir in sample_dirs:
+            image_dirs = list(iter_image_dirs(sample_dir))
+            for image_dir in image_dirs:
+                print(
+                    f"Processing {patient_dir.name}/{sample_dir.name}/{image_dir.name}",
+                    flush=True,
+                )
                 total_images += 1
                 ok = process_image_dir(
                     image_dir=image_dir,
