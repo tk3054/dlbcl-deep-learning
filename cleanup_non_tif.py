@@ -9,7 +9,7 @@ Usage:
 
 from pathlib import Path
 import shutil
-BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/responder/01-06-2026 DLBCL 118867'
+BASE_PATH = 
 
 def cleanup_non_tif_files(base_path, verbose=True):
     """

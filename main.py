@@ -28,23 +28,23 @@ from pipeline_helpers import (
 # CONFIGURATION - EDIT THESE
 # ============================================================================
 
-BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/responder/01-06-2026 DLBCL 118867'
-SAMPLES_TO_PROCESS = []  # Process all available samples
+BASE_PATH = '/Users/taeeonkong/Desktop/DL Project/non-responder/01-03-2026 DLBCL 109241'
+SAMPLES_TO_PROCESS = {1: [1, 2, 3]}  # Process all available samples
 
 # Optional per-sample image filtering. Define image numbers as ints.
 # Examples:
 #   {1: [5, 13]}  → run images 5 & 13 for sample1 only
 # 
 # Leave empty, if you don't want to use filtering.
-IMAGES_TO_PROCESS = {}
+IMAGES_TO_PROCESS = {5}
 
-# Exporting named cell images into the patient folder (copied from padded_cells)
+# Exporting named cell images into the patient folder (copied from raw_crops)
 EXPORT_IMAGES_FOR_EXPORT = True
 
 # Export naming config
 EXPORT_PDMS_STIFFNESS = "1to10"
 EXPORT_CLASSIFIED_CSV = "all_samples_combined_classified.csv"
-EXPORT_SOURCE_DIR = "padded_cells"
+EXPORT_SOURCE_DIR = "raw_crops"
 EXPORT_OUTPUT_DIR = "formatted_cells"
 EXPORT_DILUTION = "1to10"
 EXPORT_NAME_ORDER = [
@@ -90,10 +90,6 @@ MASTER_COLUMN_TOGGLES = {
     "round": False,
     "solidity": False,
 }
-
-# Edge softening comparison
-GENERATE_EDGE_COMPARISONS = False  # DISABLED: Generate edge softening comparison images
-NUM_CELLS_TO_COMPARE = 5  # Number of cells per image to compare
 
 # File names for images for each channel. These must match the names in the folder. 
 CHANNEL_CONFIG = {
@@ -181,20 +177,6 @@ def main():
                 if result['success']:
                     total_processed += 1
                     print(f"\n✓ Successfully processed {sample_folder}/{image_number}")
-
-                    # Generate edge softening comparison images
-                    if GENERATE_EDGE_COMPARISONS:
-                        try:
-                            print(f"\n  Creating edge softening comparisons...")
-                            compare_multiple_cells(
-                                sample_folder=sample_folder,
-                                image_number=image_number,
-                                base_path=BASE_PATH,
-                                num_cells=NUM_CELLS_TO_COMPARE
-                            )
-                            print(f"  ↳ Generated edge comparisons for {sample_folder}/{image_number}")
-                        except Exception as compare_err:
-                            print(f"  ⚠️  Failed to generate edge comparisons: {compare_err}")
                 else:
                     total_failed += 1
                     print(f"\n✗ Failed to process {sample_folder}/{image_number}")

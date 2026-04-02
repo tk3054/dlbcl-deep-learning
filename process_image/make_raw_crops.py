@@ -6,6 +6,7 @@ Create raw (unpadded, unmasked) crops using ROI masks for bounding boxes.
 from pathlib import Path
 import numpy as np
 import tifffile
+from process_image.smooth_boundary import make_soft_mask, get_soft_mask_crop_bounds
 
 
 def make_raw_crops(sample_folder, image_number, base_path,
@@ -13,6 +14,8 @@ def make_raw_crops(sample_folder, image_number, base_path,
                    roi_dir_name="cell_rois",
                    output_dir_name="raw_crops",
                    background="white",
+                   use_soft_edges=False,
+                   sigma=1.0,
                    verbose=True):
     """
     Create raw crops using ROI masks to define bounding boxes.
@@ -26,6 +29,9 @@ def make_raw_crops(sample_folder, image_number, base_path,
         output_dir_name: Output directory name (default: "raw_crops")
         background: Background mode for non-cell pixels
             ("white", "black", "transparent", or "original")
+        use_soft_edges: When True, blur the full-size ROI mask before
+            masking and crop after weighting the full image
+        sigma: Gaussian sigma used when use_soft_edges is True
         verbose: Print progress messages
 
     Returns:
@@ -83,30 +89,51 @@ def make_raw_crops(sample_folder, image_number, base_path,
         y_min, y_max = coords[0].min(), coords[0].max() + 1
         x_min, x_max = coords[1].min(), coords[1].max() + 1
 
-        cropped_img = source_img[y_min:y_max, x_min:x_max]
-        cropped_mask = roi_mask[y_min:y_max, x_min:x_max] > 0
+        binary_mask = roi_mask > 0
 
         if background == "original":
+            cropped_img = source_img[y_min:y_max, x_min:x_max]
             # Exact bounding-box crop with original pixel values untouched.
             output_arr = cropped_img
         elif background == "transparent":
-            # Keep grayscale sources single-channel so ImageJ does not split RGB.
-            if len(cropped_img.shape) == 2 or (len(cropped_img.shape) == 3 and cropped_img.shape[2] == 1):
-                masked_crop = np.zeros_like(cropped_img)
-                masked_crop[cropped_mask] = cropped_img[cropped_mask]
-                output_arr = masked_crop
-            else:
-                # For true color sources, keep RGB values and add alpha.
-                rgb_crop = cropped_img[:, :, :3].copy()
-                rgb_crop[~cropped_mask] = 0
+            if use_soft_edges:
+                crop_bounds = get_soft_mask_crop_bounds(binary_mask, sigma=sigma)
+                if crop_bounds is None:
+                    if verbose:
+                        print(f"  Skipping empty soft mask: {roi_file.name}")
+                    continue
 
-                if np.issubdtype(rgb_crop.dtype, np.integer):
-                    alpha_max = np.iinfo(rgb_crop.dtype).max
+                y_min, y_max, x_min, x_max = crop_bounds
+                soft_mask = make_soft_mask(binary_mask, sigma=sigma)
+                weighted_image = source_img.astype(np.float32)
+                if weighted_image.ndim == 2:
+                    weighted_image = weighted_image * soft_mask
                 else:
-                    alpha_max = 1.0
-                alpha = np.where(cropped_mask, alpha_max, 0).astype(rgb_crop.dtype)
-                output_arr = np.dstack([rgb_crop, alpha])
+                    weighted_image = weighted_image * soft_mask[..., np.newaxis]
+                output_arr = weighted_image[y_min:y_max, x_min:x_max]
+            else:
+                cropped_img = source_img[y_min:y_max, x_min:x_max]
+                cropped_mask = binary_mask[y_min:y_max, x_min:x_max]
+
+                # Keep grayscale sources single-channel so ImageJ does not split RGB.
+                if len(cropped_img.shape) == 2 or (len(cropped_img.shape) == 3 and cropped_img.shape[2] == 1):
+                    masked_crop = np.zeros_like(cropped_img)
+                    masked_crop[cropped_mask] = cropped_img[cropped_mask]
+                    output_arr = masked_crop
+                else:
+                    # For true color sources, keep RGB values and add alpha.
+                    rgb_crop = cropped_img[:, :, :3].copy()
+                    rgb_crop[~cropped_mask] = 0
+
+                    if np.issubdtype(rgb_crop.dtype, np.integer):
+                        alpha_max = np.iinfo(rgb_crop.dtype).max
+                    else:
+                        alpha_max = 1.0
+                    alpha = np.where(cropped_mask, alpha_max, 0).astype(rgb_crop.dtype)
+                    output_arr = np.dstack([rgb_crop, alpha])
         else:
+            cropped_img = source_img[y_min:y_max, x_min:x_max]
+            cropped_mask = binary_mask[y_min:y_max, x_min:x_max]
             if background == "white":
                 if np.issubdtype(cropped_img.dtype, np.integer):
                     bg_value = np.iinfo(cropped_img.dtype).max
@@ -147,6 +174,10 @@ if __name__ == "__main__":
     parser.add_argument("--background", default="white",
                         choices=["white", "black", "transparent", "original"],
                         help="Background for non-cell pixels")
+    parser.add_argument("--use-soft-edges", action="store_true",
+                        help="Blur the full-size ROI mask before cropping")
+    parser.add_argument("--sigma", type=float, default=1.0,
+                        help="Gaussian sigma for soft-edge masking")
     parser.add_argument("--quiet", action="store_true", help="Disable verbose output")
     args = parser.parse_args()
 
@@ -158,6 +189,8 @@ if __name__ == "__main__":
         roi_dir_name=args.roi_dir_name,
         output_dir_name=args.output_dir_name,
         background=args.background,
+        use_soft_edges=args.use_soft_edges,
+        sigma=args.sigma,
         verbose=not args.quiet
     )
 
