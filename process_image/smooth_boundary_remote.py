@@ -6,11 +6,17 @@ Iterate through all patients in DLBCL_processed and generate smoothed
 
 from pathlib import Path
 import argparse
+import sys
 
 import numpy as np
 import tifffile
 from scipy.ndimage import gaussian_filter
 from tqdm import tqdm
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from utils.name_builder import extract_image_number
 
 
