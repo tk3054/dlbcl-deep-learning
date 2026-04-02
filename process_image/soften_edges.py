@@ -9,6 +9,53 @@ import numpy as np
 from scipy.ndimage import gaussian_filter, distance_transform_edt
 
 
+def get_mask_crop_bounds(binary_mask, sigma=None, truncate=3.0):
+    """
+    Compute crop bounds for a single-cell mask.
+
+    If sigma is provided, expand the tight binary bounding box so the crop
+    preserves the Gaussian falloff around the cell.
+    """
+    coords = np.where(binary_mask > 0)
+    if len(coords[0]) == 0:
+        return None
+
+    y_min, y_max = coords[0].min(), coords[0].max() + 1
+    x_min, x_max = coords[1].min(), coords[1].max() + 1
+
+    if sigma is not None:
+        pad = int(np.ceil(float(sigma) * float(truncate)))
+        y_min = max(0, y_min - pad)
+        x_min = max(0, x_min - pad)
+        y_max = min(binary_mask.shape[0], y_max + pad)
+        x_max = min(binary_mask.shape[1], x_max + pad)
+
+    return y_min, y_max, x_min, x_max
+
+
+def make_soft_mask(binary_mask, sigma):
+    """
+    Create a normalized Gaussian-softened mask from a binary cell mask.
+
+    Parameters:
+    -----------
+    binary_mask : numpy.ndarray
+        Binary mask for the cell (1 = cell, 0 = background)
+    sigma : float
+        Gaussian blur strength
+
+    Returns:
+    --------
+    numpy.ndarray
+        Soft mask with values clipped to [0, 1]
+    """
+    soft_mask = gaussian_filter(binary_mask.astype(np.float32), sigma=sigma)
+    max_value = float(soft_mask.max())
+    if max_value > 0:
+        soft_mask = soft_mask / max_value
+    return np.clip(soft_mask, 0.0, 1.0)
+
+
 def apply_gaussian_soft_mask(image, binary_mask, sigma=2.0):
     """
     Apply soft edge masking using Gaussian blur on the mask.
@@ -47,12 +94,7 @@ def apply_gaussian_soft_mask(image, binary_mask, sigma=2.0):
         original_image, binary_mask, sigma=2.0
     )
     """
-    binary = binary_mask.astype(float)
-    print(f"[DEBUG] apply_gaussian_soft_mask called with sigma={sigma}")
-
-    # Apply Gaussian blur to the binary mask
-    soft_mask = gaussian_filter(binary, sigma=sigma)
-    soft_mask = np.clip(soft_mask, 0.0, 1.0)
+    soft_mask = make_soft_mask(binary_mask, sigma=sigma)
 
     # Apply soft mask to image
     original_dtype = image.dtype
@@ -200,9 +242,7 @@ def create_gaussian_soft_mask(binary_mask, sigma=2.0):
     soft_mask : numpy.ndarray
         The soft mask (values 0.0 to 1.0)
     """
-    binary = binary_mask.astype(float)
-    soft_mask = gaussian_filter(binary, sigma=sigma)
-    return np.clip(soft_mask, 0.0, 1.0)
+    return make_soft_mask(binary_mask, sigma=sigma)
 
 
 def create_sigmoid_soft_mask(binary_mask, k=2.0, d0=0.0, debug=False):

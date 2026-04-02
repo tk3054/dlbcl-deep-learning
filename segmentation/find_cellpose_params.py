@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+)#!/usr/bin/env python3
 """
 Find optimal Cellpose parameters without GUI
 Edit SAMPLE_FOLDER and IMAGE_NUMBER below, then run: python find_cellpose_params.py
