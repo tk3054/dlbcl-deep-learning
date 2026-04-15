@@ -18,14 +18,18 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from utils.image_iterator import resolve_image_folder
-from utils.name_builder import build_channel_filename, format_cell_classification
+from utils.name_builder import (
+    build_channel_filename,
+    format_cell_classification,
+    format_sigma_label,
+)
 
 
 DEFAULT_ROOT = Path("/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/DLBCL_processed")
 DEFAULT_CLEAN_CSV = "clean_cell_list.csv"
 DEFAULT_CLASSIFIED_CSV = "all_samples_combined_classified.csv"
 DEFAULT_SMOOTHING_DIR = "visualize smoothing"
-DEFAULT_SIGMAS = (1, 3, 5)
+DEFAULT_SIGMAS = (0.7, 7.0)
 
 
 @dataclass(frozen=True)
@@ -119,33 +123,34 @@ def load_classified_rows(classified_csv_path: Path) -> dict[CellKey, dict[str, s
     return rows
 
 
-def resolve_smoothed_source(patient_dir: Path, key: CellKey, smoothing_dir_name: str, sigma: int) -> Path | None:
+def resolve_smoothed_source(patient_dir: Path, key: CellKey, smoothing_dir_name: str, sigma: float) -> Path | None:
     sample_dir = patient_dir / f"sample{key.sample}"
     image_folder = resolve_image_folder(sample_dir, str(key.image))
     if image_folder is None:
         return None
+    sigma_label = format_sigma_label(sigma).removeprefix("sigma")
     return (
         sample_dir
         / image_folder
         / smoothing_dir_name
         / f"cell_{key.cell}"
-        / f"sigma_{sigma}.tif"
+        / f"sigma_{sigma_label}.tif"
     )
 
 
-def build_destination_name(patient_dir: Path, row: dict[str, str], sigma: int) -> str:
+def build_destination_name(patient_dir: Path, row: dict[str, str], sigma: float) -> str:
     classification = format_cell_classification(row.get("cell_type", ""), row.get("tcell_subset", ""))
     patient_id = row.get("patient_id") or parse_unique_id(row.get("unique_id", "")).patient_id
+    sigma_suffix = format_sigma_label(sigma).replace("sigma", "smoothS", 1)
     base_name = build_channel_filename(
         response=row.get("response", patient_dir.parent.name),
         patient_folder_name=patient_dir.name,
         patient_id=patient_id,
-        stiffness="1to10",
         sample=row.get("sample", ""),
         image=row.get("image", ""),
         cell_id=row.get("cell_id", ""),
         classification=classification,
-        channel_suffix=f"actin_smoothS{sigma}",
+        channel_suffix=f"actin_{sigma_suffix}",
     )
     return f"{base_name}.tif"
 
@@ -160,7 +165,8 @@ def export_patient(patient_dir: Path, clean_keys: set[CellKey], args: argparse.N
     missing = 0
 
     for sigma in args.sigmas:
-        (patient_dir / f"smoothed_actin_s{sigma}").mkdir(exist_ok=True)
+        sigma_dir = format_sigma_label(sigma).replace("sigma", "smoothed_actin_s", 1)
+        (patient_dir / sigma_dir).mkdir(exist_ok=True)
 
     for key in sorted(clean_keys, key=lambda item: (item.sample, item.image, item.cell)):
         row = classified_rows.get(key)
@@ -178,13 +184,14 @@ def export_patient(patient_dir: Path, clean_keys: set[CellKey], args: argparse.N
             )
             if source_path is None or not source_path.exists():
                 missing += 1
+                sigma_label = format_sigma_label(sigma).removeprefix("sigma")
                 print(
-                    f"[{patient_dir.name}] missing sigma_{sigma}.tif for "
+                    f"[{patient_dir.name}] missing sigma_{sigma_label}.tif for "
                     f"sample{key.sample}/image{key.image:02d}/cell{key.cell:02d}"
                 )
                 continue
 
-            dest_dir = patient_dir / f"smoothed_actin_s{sigma}"
+            dest_dir = patient_dir / format_sigma_label(sigma).replace("sigma", "smoothed_actin_s", 1)
             dest_name = build_destination_name(patient_dir, row, sigma)
             shutil.copy2(source_path, dest_dir / dest_name)
             copied += 1
@@ -198,7 +205,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clean-csv", type=Path, default=Path(DEFAULT_CLEAN_CSV), help="CSV with selected unique_id rows")
     parser.add_argument("--classified-csv", default=DEFAULT_CLASSIFIED_CSV, help="Per-patient classified CSV filename")
     parser.add_argument("--smoothing-dir", default=DEFAULT_SMOOTHING_DIR, help="Per-image smoothing output directory")
-    parser.add_argument("--sigmas", nargs="+", type=int, default=list(DEFAULT_SIGMAS), help="Sigma values to export")
+    parser.add_argument("--sigmas", nargs="+", type=float, default=list(DEFAULT_SIGMAS), help="Sigma values to export")
     return parser.parse_args()
 
 
