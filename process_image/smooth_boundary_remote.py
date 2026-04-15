@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from utils.name_builder import extract_image_number
+from utils.name_builder import build_channel_filename, build_patient_context, extract_image_number, format_sigma_label
 
 
 DEFAULT_ROOT = Path("/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/DLBCL_processed")
@@ -62,9 +62,8 @@ def extract_centered_crop(image, center_y, center_x, target_size, fill_value=0.0
     return crop
 
 
-def save_smoothed_crop(cell_dir, final_crop, sigma):
-    sigma_label = str(int(sigma)) if float(sigma).is_integer() else str(sigma).replace(".", "p")
-    tifffile.imwrite(cell_dir / f"sigma_{sigma_label}.tif", final_crop.astype(np.float32))
+def save_smoothed_crop(output_dir, final_crop, output_name):
+    tifffile.imwrite(output_dir / output_name, final_crop.astype(np.float32))
 
 
 def iter_patient_dirs(root_dir):
@@ -106,6 +105,8 @@ def process_image_dir(
     roi_dir = image_dir / roi_dir_name
     output_dir = image_dir / output_dir_name
     image_number = image_dir.name
+    patient_dir = image_dir.parent.parent
+    patient_context = build_patient_context(patient_dir)
 
     if not source_path.exists():
         append_log(log_path, patient_name, sample_name, image_number, f"missing source image: {source_image_name}")
@@ -138,9 +139,6 @@ def process_image_dir(
             center_y = (float(coords[0].min()) + float(coords[0].max())) / 2.0
             center_x = (float(coords[1].min()) + float(coords[1].max())) / 2.0
 
-            cell_dir = output_dir / f"cell_{cell_index}"
-            cell_dir.mkdir(exist_ok=True)
-
             for sigma in sigma_values:
                 soft_mask = gaussian_filter(binary_mask.astype(np.float32), sigma=sigma)
                 weighted_image = source_img.astype(np.float32) * soft_mask
@@ -152,7 +150,23 @@ def process_image_dir(
                     fill_value=0.0,
                 )
 
-                save_smoothed_crop(cell_dir=cell_dir, final_crop=final_crop, sigma=sigma)
+                output_name = (
+                    build_channel_filename(
+                        response=patient_dir.parent.name,
+                        patient_folder_name=patient_dir.name,
+                        patient_id=patient_context.get("patient_id") or "UnknownPatient",
+                        sample=sample_name,
+                        image=image_number,
+                        cell_id=cell_index,
+                        channel_suffix=f"actin_{format_sigma_label(sigma)}",
+                    )
+                    + ".tif"
+                )
+                save_smoothed_crop(
+                    output_dir=output_dir,
+                    final_crop=final_crop,
+                    output_name=output_name,
+                )
 
             processed_any = True
 

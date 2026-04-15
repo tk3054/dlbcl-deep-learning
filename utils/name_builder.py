@@ -174,16 +174,23 @@ def format_cell_label(cell_id: str | int) -> str:
     return f"cell{int(cell_id):02d}"
 
 
+def format_sigma_label(sigma: float) -> str:
+    sigma_value = float(sigma)
+    if sigma_value.is_integer():
+        return f"sigma{int(sigma_value)}"
+    return f"sigma{str(sigma_value).replace('.', 'p')}"
+
+
 def build_channel_filename(
     response: str,
     patient_folder_name: str,
     patient_id: str | int,
-    stiffness: str,
     sample: str | int,
     image: str | int,
     cell_id: str | int,
-    classification: str,
-    channel_suffix: str,
+    stiffness: str = "1to10",
+    classification: str = "",
+    channel_suffix: str = "",
 ) -> str:
     parts = [
         format_patient_response_label(response),
