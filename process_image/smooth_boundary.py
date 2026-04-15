@@ -269,7 +269,7 @@ def run_smooth_boundary(sample_folder, image_number, base_path, params=None, ver
         for sigma in sigma_values:
             # Build the blurred ROI on the full-size mask, weight the full image,
             # then extract a fixed-size crop centered on the cell.
-            soft_mask = gaussian_filter(binary_mask.astype(np.float32), sigma=sigma)
+            soft_mask = gaussian_filter(binary_mask.astype(np.float32), sigma=sigma, radius=7)
             weighted_image = source_img.astype(np.float32) * soft_mask
             crop_bounds = get_centered_crop_bounds(center_y, center_x, target_size)
             padded = (

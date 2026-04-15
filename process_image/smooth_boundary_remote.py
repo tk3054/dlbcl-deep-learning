@@ -24,7 +24,7 @@ DEFAULT_ROOT = Path("/mnt/HDD16TB/LanceKam_Lab/Daizong/Project/DLBCL/DLBCL/DLBCL
 DEFAULT_SOURCE_IMAGE = "processed_Actin-FITC.tif"
 DEFAULT_ROI_DIR = "cell_rois"
 DEFAULT_OUTPUT_DIR = "visualize smoothing"
-DEFAULT_SIGMA_VALUES = [1, 3, 5]
+DEFAULT_SIGMA_VALUES = [0.5, 7]
 DEFAULT_TARGET_SIZE = 224
 
 
