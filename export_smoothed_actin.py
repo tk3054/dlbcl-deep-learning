@@ -205,7 +205,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--clean-csv", type=Path, default=Path(DEFAULT_CLEAN_CSV), help="CSV with selected unique_id rows")
     parser.add_argument("--classified-csv", default=DEFAULT_CLASSIFIED_CSV, help="Per-patient classified CSV filename")
     parser.add_argument("--smoothing-dir", default=DEFAULT_SMOOTHING_DIR, help="Per-image smoothing output directory")
-    parser.add_argument("--sigmas", nargs="+", type=float, default=list(DEFAULT_SIGMAS), help="Sigma values to export")
+    parser.add_argument("--sigmas", nargs="+", type=float, default=DEFAULT_SIGMAS, help="Sigma values to export")
     return parser.parse_args()
 
 
