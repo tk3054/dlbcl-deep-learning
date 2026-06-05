@@ -1,0 +1,10 @@
+cellpose
+matplotlib
+numpy
+opencv-python
+pandas
+pillow
+pyimagej
+scikit-image
+scipy
+tifffile

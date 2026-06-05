@@ -12,6 +12,27 @@ This pipeline automates the complete workflow for analyzing fluorescent microsco
 
 ## 🚀 Quick Start
 
+### Notebook Workflow
+
+For interactive analysis, start with:
+
+```bash
+jupyter notebook DLBCL_Cell_Analysis_Pipeline.ipynb
+```
+
+The notebook is the clean entry point for:
+- selecting a responder or non-responder patient folder
+- previewing samples/images/channels before running the heavy pipeline
+- running Cellpose/ImageJ processing when explicitly enabled
+- combining image, sample, patient, and responder-level CSVs
+- plotting quick QC histograms and responder comparisons
+
+Install the smaller notebook dependency set with:
+
+```bash
+pip install -r requirements-notebook.txt
+```
+
 ### 1. Install Dependencies
 
 ```bash

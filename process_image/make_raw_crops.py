@@ -6,7 +6,7 @@ Create raw (unpadded, unmasked) crops using ROI masks for bounding boxes.
 from pathlib import Path
 import numpy as np
 import tifffile
-from process_image.smooth_boundary import make_soft_mask, get_soft_mask_crop_bounds
+from process_image.soften_edges import get_mask_crop_bounds, make_soft_mask
 
 
 def make_raw_crops(sample_folder, image_number, base_path,
@@ -97,7 +97,7 @@ def make_raw_crops(sample_folder, image_number, base_path,
             output_arr = cropped_img
         elif background == "transparent":
             if use_soft_edges:
-                crop_bounds = get_soft_mask_crop_bounds(binary_mask, sigma=sigma)
+                crop_bounds = get_mask_crop_bounds(binary_mask, sigma=sigma)
                 if crop_bounds is None:
                     if verbose:
                         print(f"  Skipping empty soft mask: {roi_file.name}")

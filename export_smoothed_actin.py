@@ -102,6 +102,22 @@ def load_clean_cells(clean_csv_path: Path) -> dict[str, set[CellKey]]:
     return selected
 
 
+def resolve_clean_csv_path(root_dir: Path, clean_csv_arg: Path) -> Path:
+    if clean_csv_arg.is_absolute():
+        return clean_csv_arg
+
+    candidates = [
+        root_dir / clean_csv_arg,
+        REPO_ROOT / clean_csv_arg,
+        root_dir.parent / clean_csv_arg,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return root_dir / clean_csv_arg
+
+
 def load_classified_rows(classified_csv_path: Path) -> dict[CellKey, dict[str, str]]:
     if not classified_csv_path.exists():
         raise FileNotFoundError(f"Classified CSV not found: {classified_csv_path}")
@@ -212,7 +228,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     root_dir = args.root_dir.resolve()
-    clean_csv_path = args.clean_csv if args.clean_csv.is_absolute() else root_dir / args.clean_csv
+    clean_csv_path = resolve_clean_csv_path(root_dir, args.clean_csv)
 
     patient_dirs = discover_patient_dirs(root_dir)
     if not patient_dirs:
