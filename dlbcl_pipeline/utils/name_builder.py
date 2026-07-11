@@ -187,6 +187,7 @@ def format_sigma_label(sigma: float) -> str:
         return f"sigma{int(sigma_value)}"
     return f"sigma{str(sigma_value).replace('.', 'p')}"
 
+#Non-responder_01-03-2026_DLBCL_1to10_109241_sample01_image01_cell03_native_CD4_CM_actin.tif
 
 def build_channel_filename(
     response: str,

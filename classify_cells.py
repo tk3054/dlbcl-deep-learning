@@ -23,7 +23,7 @@ CLASSIFICATION = ClassificationConfig(
         'cd4':     260.0,   # CD4-PerCP
         'cd45ra':  120.0,   # CD45RA (exactly one of AF647 or SparkViolet/PacBlue must be present)
         'ccr7':    114.0,   # CCR7-AF594
-        'cd19car': 430.0,   # CD19CAR-AF647
+        'cd19car': 43.0,   # CD19CAR-AF647
     },
 )
 

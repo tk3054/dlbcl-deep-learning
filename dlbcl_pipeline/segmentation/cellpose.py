@@ -18,29 +18,6 @@ from PIL import Image
 from skimage import measure, io
 from scipy import ndimage as ndi
 
-# ============================================================================
-# CONFIGURATION - EDIT THESE
-# ============================================================================
-
-# Change these values to process different samples
-SAMPLE_FOLDER = "sample1"  # Options: "sample1", "sample2", "sample3"
-IMAGE_NUMBER = "6"         # Options: "1", "2", "3", "4", etc.
-
-# Cellpose parameters
-MODEL_TYPE = "cyto2"       # Options: "cyto2" (cells), "nuclei", "cpsam" (latest)
-DIAMETER = 50              # Auto-detect if None, or specify in pixels
-FLOW_THRESHOLD = 0.4       # Higher = stricter (fewer masks)
-CELLPROB_THRESHOLD = -2.0  # Higher = stricter (fewer masks), lower = more permissive
-USE_GPU = True             # Set to True if you have GPU (Mac MPS)
-
-# Size filtering
-MIN_SIZE = 500
-MAX_SIZE = 20000           # Increased for larger cells
-
-
-BASE_PATH = "/Users/taeeonkong/Desktop/Project/Summer2025/20250729_CLLSaSa/1to10"
-BASE_DIR = f"{BASE_PATH}/{SAMPLE_FOLDER}/{IMAGE_NUMBER}"
-
 
 # ============================================================================
 # CELLPOSE SEGMENTATION FUNCTIONS
@@ -450,27 +427,35 @@ def visualize_segmentation(base_dir, num_cells, channel_config=None):
 
 
 def main():
-    """Run Cellpose segmentation with configuration from globals"""
+    """Run Cellpose segmentation via CLI. Pass args or edit defaults in CellposeConfig."""
+    import argparse
+    from dlbcl_pipeline.config import CellposeConfig
 
+    parser = argparse.ArgumentParser(description="Run Cellpose segmentation on a single image.")
+    parser.add_argument("--base-path", required=True)
+    parser.add_argument("--sample", required=True)
+    parser.add_argument("--image", required=True)
+    args = parser.parse_args()
+
+    cfg = CellposeConfig()
     result = segment_cells_cellpose(
-        sample_folder=SAMPLE_FOLDER,
-        image_number=IMAGE_NUMBER,
-        base_path=BASE_PATH,
-        model_type=MODEL_TYPE,
-        diameter=DIAMETER,
-        flow_threshold=FLOW_THRESHOLD,
-        cellprob_threshold=CELLPROB_THRESHOLD,
-        min_size=MIN_SIZE,
-        max_size=MAX_SIZE,
-        use_gpu=USE_GPU,
-        verbose=True
+        sample_folder=args.sample,
+        image_number=args.image,
+        base_path=args.base_path,
+        model_type=cfg.model,
+        diameter=cfg.diameter,
+        flow_threshold=cfg.flow_threshold,
+        cellprob_threshold=cfg.cellprob_threshold,
+        min_size=cfg.min_size,
+        max_size=cfg.max_size,
+        use_gpu=cfg.use_gpu,
+        verbose=True,
     )
 
     if not result['success']:
         print(f"\n❌ Segmentation failed: {result['error']}")
         sys.exit(1)
 
-    # Create visualization
     visualize_segmentation(result['base_dir'], result['num_cells'], None)
 
     print("\n" + "="*60)

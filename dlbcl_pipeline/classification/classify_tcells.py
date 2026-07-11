@@ -81,7 +81,12 @@ def classify_cell(row, thresholds):
     else:
         memory_subset = "Unclassified"
 
-    cell_type = "CD4+" if is_cd4_pos else "CD8+"
+    if is_car_pos:
+        cell_type = "CAR-T"
+    elif is_cd4_pos:
+        cell_type = "CD4+"
+    else:
+        cell_type = "CD8+"
     subset = memory_subset
 
     return {
