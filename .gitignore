@@ -15,6 +15,7 @@ env/
 
 # Jupyter
 .ipynb_checkpoints/
+*/.ipynb_checkpoints/
 
 # Logs / crash dumps
 *.log
@@ -22,3 +23,25 @@ hs_err_pid*.log
 
 # OS
 .DS_Store
+
+# Generated microscopy pipeline outputs
+cell_rois/
+cell_rois_shrunk/
+raw_crops/
+raw_crops_jpg/
+raw_ccr7/
+raw_cd45ra/
+roi_crops_blackBg/
+roi_crops_tif/
+roi_crops_whiteBg/
+padded_cells/
+padded_ccr7/
+padded_cd45ra/
+processed_*.tif
+*_raw.jpg
+cellpose_segmentation_visualization.png
+combined_measurements.csv
+all_samples_combined.csv
+all_samples_combined_classified.csv
+cell_area_histogram.png
+formatted_cells/
