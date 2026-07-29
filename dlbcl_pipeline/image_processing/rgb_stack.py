@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Stack three normalized single-channel TIFs into a float32 RGB TIF.
+Stack three already-normalized single-channel TIFs into a float32 RGB TIF.
 
 Channel mapping: R=CCR7, G=Actin, B=CD45RA
 Reads from formatted_{channel}/normalized_tif/ inside the donor directory.
-Outputs float32 RGB TIFs (0-1) and 8-bit JPG previews.
+Channel values are preserved when stacking. Outputs float32 RGB TIFs and
+8-bit JPG previews.
 """
 
 from pathlib import Path
@@ -41,7 +42,10 @@ def stack_rgb_channels(
     verbose=True,
 ):
     """
-    Stack normalized single-channel TIFs into float32 RGB composites.
+    Stack already-normalized single-channel TIFs into float32 RGB composites.
+
+    This function does not normalize or clip channel values. Run channel
+    normalization before calling it.
 
     Args:
         donor_dir: Path to the donor directory containing formatted_* folders.
@@ -132,11 +136,6 @@ def stack_rgb_channels(
                 num_skipped += 1
                 continue
 
-            r_arr = np.clip(r_arr, 0, 1)
-            g_arr = np.clip(g_arr, 0, 1)
-            b_arr = np.clip(b_arr, 0, 1)
-
-            h, w = r_arr.shape
             rgb = np.stack([r_arr, g_arr, b_arr], axis=-1)
 
             # Save float32 TIF
